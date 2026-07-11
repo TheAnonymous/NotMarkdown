@@ -1,0 +1,77 @@
+name: Deploy GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "notmarkdown-site/**"
+      - "notmarkdown-web-editor/**"
+      - "notmarkdown-reference-parser/**"
+      - "NotMarkdown-visuals-0.1.nmdoc"
+      - "NotMarkdown-v0.1-Draft.md"
+      - "NotMarkdown-Editor-Architecture-0.1.md"
+      - "NotMarkdown-Adoption-Plan-0.1.md"
+      - "notmarkdown-cdm-0.1.schema.json"
+      - "notmarkdown-manifest-0.1.schema.json"
+      - "notmarkdown-source-0.1.ebnf"
+      - "LICENSE"
+      - "LICENSE-POLICY.md"
+      - "THIRD_PARTY_NOTICES.md"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            notmarkdown-reference-parser/package-lock.json
+            notmarkdown-web-editor/package-lock.json
+
+      - name: Build reference toolchain
+        working-directory: notmarkdown-reference-parser
+        run: npm ci && npm run build
+
+      - name: Build Studio
+        working-directory: notmarkdown-web-editor
+        run: npm ci && npm run build
+
+      - name: Assemble Pages artifact
+        working-directory: notmarkdown-site
+        run: npm run build:pages && npm run check:pages
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: pages-dist
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

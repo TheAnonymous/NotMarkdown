@@ -5,6 +5,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node test.mjs"
+    "check": "node test.mjs",
+    "build:pages": "node build-pages.mjs",
+    "check:pages": "node test-pages.mjs"
   }
 }
