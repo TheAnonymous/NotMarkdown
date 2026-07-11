@@ -60,9 +60,17 @@ export async function renderVegaLiteSvg(source: string): Promise<string> {
   const preflight = preflightVegaLite(source);
   if (!preflight.ok || !preflight.spec) throw new Error(`${preflight.code}: ${preflight.message}`);
   return queue.run(async () => {
-    const [{ compile }, vega] = await Promise.all([import("vega-lite"), import("vega")]);
+    const [{ compile }, vega, { expressionInterpreter }] = await Promise.all([
+      import("vega-lite"),
+      import("vega"),
+      import("vega-interpreter")
+    ]);
     const compiled = compile(preflight.spec as never, { config: { background: "transparent" } });
-    const view = new vega.View(vega.parse(compiled.spec), { renderer: "none" });
+    const runtime = vega.parse(compiled.spec, undefined, { ast: true });
+    const view = new vega.View(runtime, {
+      expr: expressionInterpreter,
+      renderer: "none"
+    });
     await view.runAsync();
     const svg = await view.toSVG();
     view.finalize();

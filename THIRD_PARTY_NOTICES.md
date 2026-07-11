@@ -8,6 +8,7 @@ respective packages and remain controlling.
 | --- | ---: | --- | --- |
 | Mermaid | 11.16.0 | MIT | Static declarative diagram rendering in Studio |
 | Vega | 6.2.0 | BSD-3-Clause | Static chart runtime in Studio |
+| Vega Interpreter | 2.2.1 | BSD-3-Clause | CSP-safe Vega expression evaluation in Studio |
 | Vega-Lite | 6.4.3 | BSD-3-Clause | Declarative chart compilation in Studio |
 | DOMPurify | 3.4.11 | Apache-2.0 or MPL-2.0 | Sanitization boundary for generated SVG |
 | OpenDyslexic | commit `1824da5c0e41dc3e13ffc7f3a636dcaf695d61b7` | SIL-OFL-1.1 | Bundled offline reading font for Studio's optional Dyslexia-friendly mode |

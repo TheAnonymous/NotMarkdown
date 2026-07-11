@@ -8,15 +8,33 @@ import {
   within
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { EditorView } from "@codemirror/view";
 import { parse } from "@notmarkdown/reference-toolchain";
 import App, { cacheRepresentationIfCurrent } from "./App";
 import { DocumentEditor } from "./components/DocumentEditor";
+import {
+  renderMermaidSvg,
+  renderVegaLiteSvg
+} from "./core/visual-renderers";
 import type { AssetData } from "./core/container";
 import type {
   BrowserLaunchQueue,
   LaunchParams
 } from "./core/file-intake";
 import { DOCUMENT_THEME_OPTIONS } from "./core/document-appearance";
+
+vi.mock("./core/visual-renderers", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./core/visual-renderers")>();
+  return {
+    ...actual,
+    renderMermaidSvg: vi.fn(async () =>
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 120"><text>Mermaid test preview</text></svg>'
+    ),
+    renderVegaLiteSvg: vi.fn(async () =>
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180"><text>Vega-Lite test preview</text></svg>'
+    )
+  };
+});
 
 const storedValues = new Map<string, string>();
 const localStorage = {
@@ -45,13 +63,117 @@ Object.defineProperty(window, "localStorage", {
   configurable: true
 });
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => {
+  localStorage.clear();
+  vi.clearAllMocks();
+});
 
 describe("NotMarkdown Studio", () => {
+  it("renders the three built-in static visuals and keeps their exact source fences", async () => {
+    const mermaidFence = [
+      "```mermaid",
+      "flowchart LR",
+      "  Draft[Draft] --> Inspect[Inspect source] --> Build[Build package] --> Verify[Verify and share]",
+      "```"
+    ].join("\n");
+    const barChartFence = [
+      "```vega-lite",
+      "{",
+      '  "title": "Assets in a sample package",',
+      '  "data": {',
+      '    "values": [',
+      '      { "type": "Images", "count": 4 },',
+      '      { "type": "Audio", "count": 2 },',
+      '      { "type": "Video", "count": 1 },',
+      '      { "type": "Data", "count": 3 }',
+      "    ]",
+      "  },",
+      '  "mark": "bar",',
+      '  "encoding": {',
+      '    "x": { "field": "type", "type": "nominal", "title": "Asset type" },',
+      '    "y": { "field": "count", "type": "quantitative", "title": "Assets" }',
+      "  }",
+      "}",
+      "```"
+    ].join("\n");
+    const lineChartFence = [
+      "```vega-lite",
+      "{",
+      '  "title": "Example document progress",',
+      '  "data": {',
+      '    "values": [',
+      '      { "stage": "Outline", "progress": 20 },',
+      '      { "stage": "Draft", "progress": 50 },',
+      '      { "stage": "Review", "progress": 80 },',
+      '      { "stage": "Ready", "progress": 100 }',
+      "    ]",
+      "  },",
+      '  "mark": "line",',
+      '  "encoding": {',
+      '    "x": { "field": "stage", "type": "ordinal", "title": "Stage" },',
+      '    "y": { "field": "progress", "type": "quantitative", "title": "Progress (%)" }',
+      "  }",
+      "}",
+      "```"
+    ].join("\n");
+    const rendered = render(<App />);
+
+    expect(
+      await screen.findByRole("img", { name: "Rendered Mermaid diagram" })
+    ).toBeVisible();
+    expect(
+      await screen.findAllByRole("img", {
+        name: "Rendered Vega-Lite chart; an accessible data table follows"
+      })
+    ).toHaveLength(2);
+    expect(rendered.container.querySelectorAll(".visual-error")).toHaveLength(0);
+    expect(renderMermaidSvg).toHaveBeenCalledTimes(1);
+    expect(renderMermaidSvg).toHaveBeenCalledWith(
+      mermaidFence.split("\n").slice(1, -1).join("\n")
+    );
+    expect(renderVegaLiteSvg).toHaveBeenCalledTimes(2);
+    expect(renderVegaLiteSvg).toHaveBeenNthCalledWith(
+      1,
+      barChartFence.split("\n").slice(1, -1).join("\n")
+    );
+    expect(renderVegaLiteSvg).toHaveBeenNthCalledWith(
+      2,
+      lineChartFence.split("\n").slice(1, -1).join("\n")
+    );
+    const outline = screen.getByRole("navigation", {
+      name: "Automatic outline"
+    });
+    for (const heading of [
+      "From draft to delivery",
+      "Assets in a sample package",
+      "Example document progress"
+    ]) {
+      expect(within(outline).getByRole("button", { name: heading })).toBeVisible();
+    }
+
+    fireEvent.click(screen.getByRole("button", { name: /Source/ }));
+    await waitFor(() =>
+      expect(rendered.container.querySelector(".cm-editor")).not.toBeNull()
+    );
+    const editor = EditorView.findFromDOM(
+      rendered.container.querySelector(".cm-editor") as HTMLElement
+    );
+    expect(editor).not.toBeNull();
+    const source = editor!.state.doc.toString();
+    expect(source.match(/^```mermaid$/gm)).toHaveLength(1);
+    expect(source.match(/^```vega-lite$/gm)).toHaveLength(2);
+    expect(source).toContain(mermaidFence);
+    expect(source).toContain(barChartFence);
+    expect(source).toContain(lineChartFence);
+  });
+
   it("exposes all three views and keeps them navigable", async () => {
     render(<App />);
     expect(
-      await screen.findByText("One document. Three honest views.")
+      await screen.findByRole("heading", {
+        name: "One document. Three honest views.",
+        level: 1
+      })
     ).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: /Source/ }));
