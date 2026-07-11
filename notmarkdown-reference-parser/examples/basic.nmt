@@ -1,0 +1,28 @@
+@notmarkdown 0.1
+
+@document {
+  title: "NotMarkdown parser example"
+  language: en
+  theme: technical
+  accent: violet
+}
+
+# Prototype {#prototype}
+
+This is **strong**, *emphasized*, and contains [a link](https://example.org).
+
+1. First observation
+1. Second observation
+  - Nested detail
+
+![A Norwegian fjord](asset:fjord){layout=wide}
+
+!video[Prototype demonstration](asset:demo) {
+  poster: asset:demo-poster
+  captions.en: asset:demo-captions
+  transcript: asset:demo-transcript
+}
+
+See [the prototype section](#prototype).[^source]
+
+[^source]: Example source note.

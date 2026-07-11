@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="180" viewBox="0 0 640 180">
+  <rect width="640" height="180" rx="24" fill="#f5f3ff"/>
+  <rect x="40" y="55" width="160" height="70" rx="12" fill="#ddd6fe"/>
+  <rect x="240" y="55" width="160" height="70" rx="12" fill="#c4b5fd"/>
+  <rect x="440" y="55" width="160" height="70" rx="12" fill="#a78bfa"/>
+  <path d="M200 90h40M400 90h40" stroke="#5b21b6" stroke-width="5"/>
+  <text x="120" y="96" text-anchor="middle" font-family="sans-serif" font-size="18">Source</text>
+  <text x="320" y="96" text-anchor="middle" font-family="sans-serif" font-size="18">Manifest</text>
+  <text x="520" y="96" text-anchor="middle" font-family="sans-serif" font-size="18">Assets</text>
+</svg>

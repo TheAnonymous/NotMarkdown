@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/vnd.notmarkdown.document+zip">
+    <comment>NotMarkdown document</comment>
+    <acronym>NotMarkdown</acronym>
+    <expanded-acronym>NotMarkdown static document</expanded-acronym>
+    <sub-class-of type="application/zip"/>
+    <glob pattern="*.nmdoc" weight="80"/>
+    <magic priority="80">
+      <match type="string" value="PK\003\004" offset="0">
+        <match type="string" value="mimetype" offset="30">
+          <match
+            type="string"
+            value="application/vnd.notmarkdown.document+zip"
+            offset="38"
+          />
+        </match>
+      </match>
+    </magic>
+    <icon name="application-vnd.notmarkdown.document+zip"/>
+  </mime-type>
+
+  <mime-type type="text/vnd.notmarkdown.source">
+    <comment>NotMarkdown source document</comment>
+    <sub-class-of type="text/plain"/>
+    <glob pattern="*.nmt" weight="80"/>
+    <magic priority="70">
+      <match type="string" value="@notmarkdown 0.1" offset="0"/>
+    </magic>
+    <icon name="text-vnd.notmarkdown.source"/>
+  </mime-type>
+</mime-info>
+

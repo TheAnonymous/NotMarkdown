@@ -1,0 +1,27 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v6.json",
+  "description": "Preview latency by document size",
+  "data": {
+    "values": [
+      { "kilobytes": 16, "milliseconds": 8 },
+      { "kilobytes": 64, "milliseconds": 13 },
+      { "kilobytes": 256, "milliseconds": 27 },
+      { "kilobytes": 1024, "milliseconds": 71 }
+    ]
+  },
+  "mark": "line",
+  "encoding": {
+    "x": {
+      "field": "kilobytes",
+      "type": "quantitative",
+      "title": "Document size (KiB)"
+    },
+    "y": {
+      "field": "milliseconds",
+      "type": "quantitative",
+      "title": "Preview latency (ms)"
+    }
+  },
+  "width": 560,
+  "height": 280
+}

@@ -1,0 +1,2 @@
+The prototype uses a silent magnetic bearing and modular generator housing.
+The transcript remains available offline as part of the single-file document.

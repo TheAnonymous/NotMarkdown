@@ -1,0 +1,187 @@
+{
+  "schema_version": 1,
+  "release_id": "notmarkdown-compatibility-kit",
+  "source_date_epoch": 315532800,
+  "archive_compression": "stored",
+  "exclude_globs": [
+    ".git",
+    ".git/**",
+    "**/.git",
+    "**/.git/**",
+    ".hg",
+    ".hg/**",
+    "**/.hg",
+    "**/.hg/**",
+    ".svn",
+    ".svn/**",
+    "**/.svn",
+    "**/.svn/**",
+    ".agents",
+    ".agents/**",
+    "**/.agents",
+    "**/.agents/**",
+    ".codex",
+    ".codex/**",
+    "**/.codex",
+    "**/.codex/**",
+    ".idea",
+    ".idea/**",
+    "**/.idea",
+    "**/.idea/**",
+    "node_modules",
+    "node_modules/**",
+    "**/node_modules",
+    "**/node_modules/**",
+    "dist",
+    "dist/**",
+    "**/dist",
+    "**/dist/**",
+    "target",
+    "target/**",
+    "**/target",
+    "**/target/**",
+    "build",
+    "build/**",
+    "**/build",
+    "**/build/**",
+    ".gradle",
+    ".gradle/**",
+    "**/.gradle",
+    "**/.gradle/**",
+    "coverage",
+    "coverage/**",
+    "**/coverage",
+    "**/coverage/**",
+    ".venv",
+    ".venv/**",
+    "**/.venv",
+    "**/.venv/**",
+    ".pytest_cache",
+    ".pytest_cache/**",
+    "**/.pytest_cache",
+    "**/.pytest_cache/**",
+    ".mypy_cache",
+    ".mypy_cache/**",
+    "**/.mypy_cache",
+    "**/.mypy_cache/**",
+    ".ruff_cache",
+    ".ruff_cache/**",
+    "**/.ruff_cache",
+    "**/.ruff_cache/**",
+    "__pycache__",
+    "__pycache__/**",
+    "**/__pycache__",
+    "**/__pycache__/**",
+    "release/out",
+    "release/out/**",
+    "*.tsbuildinfo",
+    "*.log",
+    "*.pyc",
+    ".env",
+    ".env.*",
+    ".DS_Store",
+    "Thumbs.db"
+  ],
+  "executable_globs": [
+    "*.sh",
+    "**/*.sh",
+    "gradlew",
+    "**/gradlew"
+  ],
+  "components": [
+    {
+      "id": "compatibility-kit",
+      "path": ".",
+      "version": "0.2.0",
+      "artifact": "notmarkdown-compatibility-kit-{version}-source.zip",
+      "archive_root": "notmarkdown-compatibility-kit-{version}"
+    },
+    {
+      "id": "format",
+      "path": ".",
+      "version": "0.1",
+      "artifact": "notmarkdown-format-{version}-source.zip",
+      "archive_root": "notmarkdown-format-{version}",
+      "include_globs": [
+        "NotMarkdown-v0.1-Draft.md",
+        "NotMarkdown-example-modern-0.1.nmdoc",
+        "NotMarkdown-searchable-assets-0.1.nmdoc",
+        "NotMarkdown-visuals-0.1.nmdoc",
+        "LICENSE",
+        "LICENSE-POLICY.md",
+        "LICENSES/**",
+        "THIRD_PARTY_NOTICES.md",
+        "notmarkdown-cdm-0.1.schema.json",
+        "notmarkdown-manifest-0.1.schema.json",
+        "notmarkdown-source-0.1.ebnf",
+        "conformance/**"
+      ]
+    },
+    {
+      "id": "rust",
+      "path": "notmarkdown-rust",
+      "version": "0.12.0",
+      "artifact": "notmarkdown-rust-{version}-source.zip",
+      "archive_root": "notmarkdown-rust-{version}",
+      "version_source": {
+        "kind": "cargo-workspace",
+        "file": "Cargo.toml"
+      }
+    },
+    {
+      "id": "studio",
+      "path": "notmarkdown-web-editor",
+      "version": "0.7.0",
+      "artifact": "notmarkdown-studio-{version}-source.zip",
+      "archive_root": "notmarkdown-studio-{version}",
+      "version_source": {
+        "kind": "package-json",
+        "file": "package.json"
+      }
+    },
+    {
+      "id": "reference-toolchain",
+      "path": "notmarkdown-reference-parser",
+      "version": "0.6.0",
+      "artifact": "notmarkdown-reference-toolchain-{version}-source.zip",
+      "archive_root": "notmarkdown-reference-toolchain-{version}",
+      "version_source": {
+        "kind": "package-json",
+        "file": "package.json"
+      }
+    },
+    {
+      "id": "vscode",
+      "path": "notmarkdown-vscode",
+      "version": "0.2.0",
+      "artifact": "notmarkdown-vscode-{version}-source.zip",
+      "archive_root": "notmarkdown-vscode-{version}",
+      "version_source": {
+        "kind": "package-json",
+        "file": "package.json"
+      }
+    },
+    {
+      "id": "jetbrains",
+      "path": "notmarkdown-jetbrains",
+      "version": "0.1.0",
+      "artifact": "notmarkdown-jetbrains-{version}-source.zip",
+      "archive_root": "notmarkdown-jetbrains-{version}",
+      "version_source": {
+        "kind": "gradle-kotlin",
+        "file": "build.gradle.kts"
+      }
+    },
+    {
+      "id": "landing",
+      "path": "notmarkdown-site",
+      "version": "0.3.0",
+      "artifact": "notmarkdown-landing-{version}-source.zip",
+      "archive_root": "notmarkdown-landing-{version}",
+      "version_source": {
+        "kind": "package-json",
+        "file": "package.json"
+      }
+    }
+  ]
+}

@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f6f4ef" />
+    <meta
+      name="description"
+      content="NotMarkdown is a static, deterministic, single-file document format with readable source, embedded modern media, and a local-first editor you can try now."
+    />
+    <title>NotMarkdown — one file, three honest views</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="NotMarkdown home">
+        <span class="brand-mark" aria-hidden="true">N</span>
+        <span class="brand-name">NotMarkdown</span>
+      </a>
+      <nav aria-label="Primary navigation">
+        <a href="#studio">Live Studio</a>
+        <a href="#format">Format</a>
+        <a href="#visuals">Visuals</a>
+        <a href="#tooling">Tooling</a>
+        <a href="#trust">Trust</a>
+      </nav>
+      <a class="header-cta" href="#studio">
+        Try it now <span aria-hidden="true">↓</span>
+      </a>
+    </header>
+
+    <main id="main" aria-label="NotMarkdown product page">
+      <section class="hero" id="top">
+        <div class="hero-copy">
+          <p class="eyebrow"><span></span> Format draft 0.1 · Studio 0.7</p>
+          <h1>Markdown’s simplicity.<br /><em>Without the loose ends.</em></h1>
+          <p class="hero-lede">
+            Write in readable text. Keep images, audio, video, diagrams,
+            captions, and attachments inside one inert, verifiable document.
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="#studio">
+              Start writing <span aria-hidden="true">↓</span>
+            </a>
+            <a class="button secondary" href="#format">
+              See how it works <span aria-hidden="true">→</span>
+            </a>
+          </div>
+          <ul class="hero-assurances" aria-label="Product assurances">
+            <li><span aria-hidden="true">✓</span>No account</li>
+            <li><span aria-hidden="true">✓</span>No upload</li>
+            <li><span aria-hidden="true">✓</span>No runtime in documents</li>
+          </ul>
+        </div>
+
+        <div class="product-window" aria-label="NotMarkdown document interface preview">
+          <div class="window-bar">
+            <div class="window-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+            <span class="window-file">field-report.nmdoc</span>
+            <span class="window-state"><i></i> verified</span>
+          </div>
+          <div class="window-tabs" aria-hidden="true">
+            <span class="active">Document</span><span>Source</span><span>Package</span>
+          </div>
+          <div class="preview-workspace">
+            <aside>
+              <p>Outline</p>
+              <strong>Field report</strong>
+              <span>Northern tidal test</span>
+              <span>Results</span>
+              <span>Embedded records</span>
+            </aside>
+            <article class="preview-paper">
+              <p class="paper-kicker">FIELD REPORT · 04</p>
+              <h2>Northern tidal test</h2>
+              <p>The rotor remained stable across the full tidal cycle. Measurements and the original diagram travel with this report.</p>
+              <figure>
+                <div class="diagram" role="img" aria-label="Tidal generator diagram">
+                  <span class="water one"></span><span class="water two"></span>
+                  <span class="axis"></span><span class="rotor"></span>
+                </div>
+                <figcaption>Generator assembly · embedded SVG source</figcaption>
+              </figure>
+            </article>
+          </div>
+          <div class="window-footer">
+            <span><i></i> Local only</span><span>modern-0.1 · Zstandard</span>
+          </div>
+        </div>
+      </section>
+
+      <div class="proof-strip" aria-label="Core properties">
+        <span><b>01</b>Readable source</span>
+        <span><b>02</b>Embedded assets</span>
+        <span><b>03</b>Deterministic bytes</span>
+        <span><b>04</b>Static by design</span>
+      </div>
+
+      <section class="studio-section" id="studio">
+        <div class="studio-intro">
+          <div>
+            <p class="eyebrow light"><span></span> Live product · no sign-up</p>
+            <h2>Don’t take our word for it.<br />Write something.</h2>
+          </div>
+          <div class="studio-copy">
+            <p>
+              This is the real NotMarkdown Studio, loaded with an editable
+              document. Change the text, inspect its source, switch to Package,
+              or open one of your own local files.
+            </p>
+            <div class="studio-facts">
+              <span>Runs in this browser</span>
+              <span>Files stay on this device</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="studio-frame">
+          <div class="studio-framebar">
+            <div class="frame-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+            <div class="frame-location"><i></i><span>Local Studio session</span></div>
+            <a
+              href="../notmarkdown-web-editor/dist/index.html"
+              target="_blank"
+              rel="noopener"
+              aria-label="Open NotMarkdown Studio in a new full-size window"
+            >
+              Open full size <span aria-hidden="true">↗</span>
+            </a>
+          </div>
+          <div class="studio-viewport">
+            <iframe
+              src="../notmarkdown-web-editor/dist/index.html?embed=1"
+              title="Live NotMarkdown Studio editor"
+              aria-describedby="studio-privacy"
+              allow="clipboard-write"
+              referrerpolicy="no-referrer"
+            ></iframe>
+          </div>
+        </div>
+
+        <div class="studio-underbar" id="studio-privacy">
+          <span><i class="privacy-dot"></i>Your document is processed locally</span>
+          <span>Tip: switch between Document, Source, and Package above</span>
+        </div>
+      </section>
+
+      <section class="section three-views" id="format">
+        <div class="section-intro">
+          <div>
+            <p class="eyebrow"><span></span> One truth, three useful views</p>
+            <h2>Nothing important is hidden behind the editor.</h2>
+          </div>
+          <p>
+            The visual document, its readable source, and the package contents
+            remain distinct, inspectable concepts everywhere—from browser to
+            terminal to IDE.
+          </p>
+        </div>
+
+        <div class="view-grid">
+          <article class="view-card document-card">
+            <div class="card-topline"><span>01</span><small>Document</small></div>
+            <h3>Write the meaning.</h3>
+            <p>Semantic formatting, automatic contents, numbering, media fallbacks, and a restrained theme system.</p>
+            <div class="mini-document">
+              <small>FIELD NOTES</small>
+              <strong>System overview</strong>
+              <p>The complete package remains readable offline.</p>
+              <blockquote>One file is the sharing unit.</blockquote>
+            </div>
+          </article>
+
+          <article class="view-card source-card">
+            <div class="card-topline"><span>02</span><small>Source</small></div>
+            <h3>Inspect ordinary text.</h3>
+            <p>Close to Markdown, explicitly versioned, and strict enough that implementations do not have to guess.</p>
+            <pre aria-label="NotMarkdown source example"><code><b>@notmarkdown 0.1</b>
+
+<i># System overview</i>
+
+One file is the sharing unit.
+
+<b>!diagram</b>[Flow](<u>asset:flow</u>)</code></pre>
+          </article>
+
+          <article class="view-card package-card">
+            <div class="card-topline"><span>03</span><small>Package</small></div>
+            <h3>Know what travels.</h3>
+            <p>Assets, roles, codecs, hashes, and progressive verification are visible rather than proprietary internals.</p>
+            <ul class="asset-list">
+              <li><span class="asset-icon">◇</span><div><strong>flow</strong><small>image/svg+xml · verified</small></div><i></i></li>
+              <li><span class="asset-icon">▶</span><div><strong>demo</strong><small>video/webm · deferred</small></div><i class="deferred"></i></li>
+              <li><span class="asset-icon">≡</span><div><strong>captions</strong><small>text/vtt · verified</small></div><i></i></li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section class="visuals-section" id="visuals" aria-labelledby="visuals-title">
+        <div class="visuals-heading">
+          <div>
+            <p class="eyebrow"><span></span> Diagrams and charts · built in</p>
+            <h2 id="visuals-title">Readable source in.<br />A polished visual out.</h2>
+          </div>
+          <div>
+            <p>Familiar declarative formats stay inert, searchable, and available offline. The source remains the truth; previews are sanitized, replaceable representations.</p>
+            <a class="showcase-link" href="../NotMarkdown-visuals-0.1.nmdoc">Open the single-file visual showcase <span aria-hidden="true">→</span></a>
+          </div>
+        </div>
+
+        <div class="visual-grid">
+          <article class="visual-card mermaid-card">
+            <header><span>01</span><div><strong>Mermaid</strong><small>Familiar fenced source</small></div><i>static</i></header>
+            <div class="visual-demo flow-demo" role="img" aria-label="Package flow diagram from source to verified document">
+              <span class="flow-node">source.nmt</span><b aria-hidden="true">→</b><span class="flow-node accent-node">package</span><b aria-hidden="true">→</b><span class="flow-node">verify</span>
+            </div>
+            <pre><code>```mermaid
+flowchart LR
+  Source --&gt; Package --&gt; Verify
+```</code></pre>
+          </article>
+
+          <article class="visual-card chart-card">
+            <header><span>02</span><div><strong>Vega-Lite</strong><small>Values-only declarative charts</small></div><i>offline</i></header>
+            <div class="visual-demo bar-demo" role="img" aria-label="Four-bar latency chart, steadily decreasing">
+              <div><span style="--bar: 84%"></span><small>A</small></div><div><span style="--bar: 63%"></span><small>B</small></div><div><span style="--bar: 47%"></span><small>C</small></div><div><span style="--bar: 28%"></span><small>D</small></div>
+            </div>
+            <p>Bounded JSON, embedded values, deterministic theme, and an accessible data summary.</p>
+          </article>
+
+          <article class="visual-card drawio-card">
+            <header><span>03</span><div><strong>draw.io</strong><small>Editable source plus safe preview</small></div><i>portable</i></header>
+            <div class="visual-demo drawio-demo" role="img" aria-label="Editable draw.io source and SVG preview packaged together">
+              <span class="file-sheet"><b>XML</b><small>source</small></span><span class="paired" aria-hidden="true">+</span><span class="file-sheet preview-sheet"><b>SVG</b><small>preview</small></span>
+            </div>
+            <p>Prefer an editable <code>.drawio.svg</code>, or keep source and preview as two representations of one logical asset.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="outcome-section" aria-labelledby="outcome-title">
+        <div class="outcome-heading">
+          <p class="eyebrow"><span></span> Batteries included</p>
+          <h2 id="outcome-title">The good parts of Markdown.<br />The loose ends resolved.</h2>
+        </div>
+        <div class="outcome-grid">
+          <article><span class="before">Asset folders</span><strong>One `.nmdoc`</strong><p>Images, audio, video, diagrams, captions, and attachments stay with the document.</p></article>
+          <article><span class="before">Dialect guessing</span><strong>One versioned grammar</strong><p>A canonical model and visible diagnostics replace implementation folklore.</p></article>
+          <article><span class="before">Manual repair</span><strong>Derived navigation</strong><p>Contents, outline, search paths, and ordered numbering update from structure.</p></article>
+          <article><span class="before">Design accidents</span><strong>Semantic themes</strong><p>Enough expression for technical work without turning into desktop publishing.</p></article>
+        </div>
+      </section>
+
+      <section class="workflow-section" id="tooling">
+        <div class="workflow-heading">
+          <div>
+            <p class="eyebrow light"><span></span> Adopt one document at a time</p>
+            <h2>Fits the workflow you already have.</h2>
+          </div>
+          <p>Start in the browser. Add the format to your repository only when it earns its place.</p>
+        </div>
+        <ol class="workflow-list">
+          <li><span>1</span><div><strong>Bring one Markdown file</strong><pre><code>notmarkdown import README.md \
+  --dialect commonmark --to nmdoc \
+  --output README.nmdoc</code></pre><p>Explicit loss reports show what did not map—nothing disappears silently.</p></div></li>
+          <li><span>2</span><div><strong>Try it locally</strong><p>Open, edit, inspect, and save in the browser without creating an account or uploading a file.</p></div></li>
+          <li><span>3</span><div><strong>Keep Git readable</strong><pre><code>notmarkdown git install --local .</code></pre><p>Package changes become reviewable canonical text in this repository only.</p></div></li>
+          <li><span>4</span><div><strong>Verify, then share</strong><pre><code>notmarkdown verify handbook.nmdoc</code></pre><p>Source, assets, fallbacks, metadata, and integrity proofs travel as one inert file.</p></div></li>
+        </ol>
+
+        <div class="plugin-grid" id="plugins">
+          <article>
+            <div class="plugin-icon vscode" aria-hidden="true">⌁</div>
+            <div><span class="status-pill">Installable prototype</span><h3>Visual Studio Code</h3><p>Language service, semantic preview, binary Package editor, inspect, and full verification.</p><a href="../notmarkdown-vscode/README.md">View plugin notes <span aria-hidden="true">→</span></a></div>
+          </article>
+          <article>
+            <div class="plugin-icon jetbrains" aria-hidden="true">N</div>
+            <div><span class="status-pill">Source scaffold</span><h3>JetBrains IDEs</h3><p>Shared LSP for supported IDEs plus a native baseline planned for Community and Android Studio.</p><a href="../notmarkdown-jetbrains/README.md">View plugin notes <span aria-hidden="true">→</span></a></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="trust-section" id="trust">
+        <div class="trust-heading">
+          <p class="eyebrow"><span></span> Static means static</p>
+          <h2>A document, not a program wearing a document’s clothes.</h2>
+          <a href="../NotMarkdown-v0.1-Draft.md">Read the format draft <span aria-hidden="true">→</span></a>
+        </div>
+        <div class="trust-grid">
+          <article><span>01</span><strong>Deterministic</strong><p>Canonical source, member order, metadata, and compression profiles make identical inputs reproducible.</p></article>
+          <article><span>02</span><strong>Inspectable</strong><p>CRC-32, SHA-256, byte sizes, codecs, and deferred verification state remain visible.</p></article>
+          <article><span>03</span><strong>Offline</strong><p>No remote assets, cloud account, or server round-trip is part of document correctness.</p></article>
+          <article><span>04</span><strong>Inert</strong><p>No scripts, macros, notebook cells, interactive forms, or arbitrary HTML.</p></article>
+        </div>
+      </section>
+
+      <section class="final-cta">
+        <p class="eyebrow light"><span></span> One file is enough</p>
+        <h2>Write something that stays together.</h2>
+        <p>The real editor is already waiting above. No account, upload, or tutorial gate.</p>
+        <div class="hero-actions centered">
+          <a class="button light-button" href="#studio">Try Studio here <span aria-hidden="true">↑</span></a>
+          <a class="button ghost-button" href="../notmarkdown-web-editor/dist/index.html" target="_blank" rel="noopener">Open full size <span aria-hidden="true">↗</span></a>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true">N</span><span class="brand-name">NotMarkdown</span></a>
+      <p>Static technical documents · format draft 0.1</p>
+      <div><a href="../NotMarkdown-v0.1-Draft.md">Specification</a><a href="../NotMarkdown-Editor-Architecture-0.1.md">Architecture</a></div>
+    </footer>
+  </body>
+</html>

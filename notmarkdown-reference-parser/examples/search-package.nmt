@@ -1,0 +1,21 @@
+@notmarkdown 0.1
+
+@document {
+  title: "Searchable embedded assets"
+  language: en
+  theme: technical
+}
+
+# Searchable media
+
+The visible document remains concise while its accessibility assets stay searchable.
+
+!video[Turbine demonstration](asset:search-demo) {
+  captions.en: asset:search-captions
+  transcript: asset:search-transcript
+}
+
+## Supporting material
+
+!attachment[Calibration notes](asset:search-notes) {
+}

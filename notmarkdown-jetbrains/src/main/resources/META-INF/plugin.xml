@@ -1,0 +1,44 @@
+<idea-plugin>
+    <id>org.notmarkdown.intellij</id>
+    <name>NotMarkdown</name>
+    <vendor url="https://notmarkdown.org">NotMarkdown</vendor>
+
+    <description><![CDATA[
+      Deterministic <code>.nmt</code> source support and safe <code>.nmdoc</code>
+      package inspection through the shared NotMarkdown Rust toolchain.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.lsp</depends>
+    <depends>com.intellij.modules.ultimate</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <fileType
+            name="NotMarkdown Source"
+            implementationClass="org.notmarkdown.intellij.NotMarkdownFileType"
+            fieldName="INSTANCE"
+            extensions="nmt" />
+        <fileType
+            name="NotMarkdown Package"
+            implementationClass="org.notmarkdown.intellij.NotMarkdownPackageFileType"
+            fieldName="INSTANCE"
+            extensions="nmdoc" />
+        <platform.lsp.serverSupportProvider
+            implementation="org.notmarkdown.intellij.NotMarkdownLspServerSupportProvider" />
+    </extensions>
+
+    <actions>
+        <action id="NotMarkdown.InspectPackage"
+                class="org.notmarkdown.intellij.InspectPackageAction"
+                text="Inspect NotMarkdown Package"
+                description="Inspect package structure without loading deferred media">
+            <add-to-group group-id="ToolsMenu" anchor="last" />
+        </action>
+        <action id="NotMarkdown.VerifyPackage"
+                class="org.notmarkdown.intellij.VerifyPackageAction"
+                text="Verify Complete NotMarkdown Package"
+                description="Stream and verify every embedded representation">
+            <add-to-group group-id="ToolsMenu" anchor="last" />
+        </action>
+    </actions>
+</idea-plugin>

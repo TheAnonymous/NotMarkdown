@@ -1,0 +1,13 @@
+@notmarkdown 0.1
+
+@document {
+  title: "Single-file package example"
+  language: en
+  theme: technical
+}
+
+# A packaged diagram
+
+The SVG below is embedded inside this document.
+
+![NotMarkdown package flow](asset:package-flow){layout=wide}

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "NotMarkdown",
+  "scopeName": "text.notmarkdown",
+  "patterns": [
+    { "match": "^@notmarkdown\\s+[0-9]+\\.[0-9]+$", "name": "meta.preprocessor.notmarkdown" },
+    { "begin": "^@document\\s*\\{$", "beginCaptures": { "0": { "name": "keyword.control.notmarkdown" } }, "end": "^\\}$", "endCaptures": { "0": { "name": "keyword.control.notmarkdown" } }, "patterns": [{ "match": "^\\s*([A-Za-z][A-Za-z0-9_-]*)(:)", "captures": { "1": { "name": "variable.other.property.notmarkdown" }, "2": { "name": "punctuation.separator.key-value.notmarkdown" } } }, { "match": "\"(?:\\\\.|[^\"\\\\])*\"", "name": "string.quoted.double.notmarkdown" }] },
+    { "match": "^(#{1,6})\\s+(.+)$", "captures": { "1": { "name": "punctuation.definition.heading.notmarkdown" }, "2": { "name": "entity.name.section.notmarkdown" } } },
+    { "match": "^\\s*(?:[-+*]|1\\.)\\s+", "name": "punctuation.definition.list.notmarkdown" },
+    { "match": "^\\s*!([A-Za-z][A-Za-z0-9_-]*)", "captures": { "0": { "name": "keyword.control.directive.notmarkdown" }, "1": { "name": "entity.name.function.notmarkdown" } } },
+    { "match": "asset:([A-Za-z][A-Za-z0-9._-]*)", "captures": { "0": { "name": "constant.other.reference.asset.notmarkdown" }, "1": { "name": "variable.other.asset.notmarkdown" } } },
+    { "begin": "^```(mermaid)$", "beginCaptures": { "0": { "name": "punctuation.definition.fenced.notmarkdown" }, "1": { "name": "entity.name.type.diagram.notmarkdown" } }, "end": "^```$", "endCaptures": { "0": { "name": "punctuation.definition.fenced.notmarkdown" } }, "name": "markup.raw.block.mermaid.notmarkdown" },
+    { "begin": "^```(vega-lite|vegalite)$", "beginCaptures": { "0": { "name": "punctuation.definition.fenced.notmarkdown" }, "1": { "name": "entity.name.type.chart.notmarkdown" } }, "end": "^```$", "endCaptures": { "0": { "name": "punctuation.definition.fenced.notmarkdown" } }, "name": "markup.raw.block.vegalite.notmarkdown" },
+    { "begin": "^```([A-Za-z0-9_+.-]*)$", "beginCaptures": { "0": { "name": "punctuation.definition.fenced.notmarkdown" }, "1": { "name": "fenced_code.block.language.notmarkdown" } }, "end": "^```$", "endCaptures": { "0": { "name": "punctuation.definition.fenced.notmarkdown" } }, "name": "markup.raw.block.notmarkdown" },
+    { "match": "`[^`\\n]+`", "name": "markup.inline.raw.notmarkdown" },
+    { "match": "\\*\\*[^*\\n]+\\*\\*", "name": "markup.bold.notmarkdown" },
+    { "match": "(?<!\\*)\\*[^*\\n]+\\*(?!\\*)", "name": "markup.italic.notmarkdown" },
+    { "match": "!?\\[[^]\\n]*\\]\\([^\\n)]+\\)", "name": "markup.underline.link.notmarkdown" },
+    { "match": "^>\\s+", "name": "punctuation.definition.quote.notmarkdown" },
+    { "match": "^---$", "name": "meta.separator.notmarkdown" }
+  ]
+}

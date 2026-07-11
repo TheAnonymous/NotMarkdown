@@ -1,0 +1,35 @@
+@notmarkdown 0.1
+
+@document {
+  title: "Static visual showcase"
+  language: en
+  theme: technical
+}
+
+# Static visuals {#static-visuals}
+
+The source of every visual remains searchable, copyable text. Previews are
+static and offline.
+
+## Mermaid package flow
+
+```mermaid
+flowchart LR
+  Source[document.nmt] --> Package[Single-file package]
+  Package --> Studio[Studio]
+  Package --> CLI[Terminal tools]
+```
+
+## Editable architecture
+
+!diagram[NotMarkdown package architecture] {
+  type: architecture
+  source: asset:architecture
+}
+
+## Vega-Lite chart
+
+!chart[Preview latency by document size] {
+  type: line
+  data: asset:latency
+}

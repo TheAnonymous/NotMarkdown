@@ -1,0 +1,52 @@
+{
+  "$schema": "../schema/case.schema.json",
+  "schemaVersion": "0.1",
+  "id": "import.github.static-visuals",
+  "title": "Import GitHub-style static visual fences without loss",
+  "description": "Mermaid and Vega-Lite fenced code from Markdown remain exact inert code-block source and become eligible for static preview.",
+  "status": "active",
+  "area": "markdown-import",
+  "tags": ["github", "import", "mermaid", "vega-lite"],
+  "specReferences": [
+    "NotMarkdown-v0.1-Draft.md Markdown import",
+    "NotMarkdown-v0.1-Draft.md static visual notation"
+  ],
+  "operation": {
+    "name": "import-markdown",
+    "parameters": {
+      "dialect": "github",
+      "target": "nmt"
+    }
+  },
+  "input": {
+    "fixtures": [
+      {
+        "role": "input",
+        "path": "conformance/fixtures/markdown/github-static-visuals.md",
+        "mediaType": "text/markdown",
+        "dialect": "github"
+      }
+    ]
+  },
+  "expected": {
+    "outcome": "accepted",
+    "assertions": [
+      {
+        "operator": "array-length",
+        "pointer": "/losses",
+        "value": 0
+      },
+      {
+        "operator": "equals",
+        "pointer": "/document/children/1/language",
+        "value": "mermaid"
+      },
+      {
+        "operator": "equals",
+        "pointer": "/document/children/2/language",
+        "value": "vega-lite"
+      }
+    ]
+  },
+  "notes": "Static visual fences are source first; an implementation may decline preview while preserving the imported code block exactly."
+}

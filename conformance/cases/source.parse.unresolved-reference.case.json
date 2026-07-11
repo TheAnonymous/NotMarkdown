@@ -1,0 +1,35 @@
+{
+  "$schema": "../schema/case.schema.json",
+  "schemaVersion": "0.1",
+  "id": "source.parse.unresolved-reference",
+  "title": "Reject an unresolved internal reference",
+  "status": "active",
+  "area": "source-parse",
+  "tags": ["diagnostic", "references"],
+  "specReferences": [
+    "NotMarkdown-v0.1-Draft.md section 10.9",
+    "NotMarkdown-v0.1-Draft.md section 10.13"
+  ],
+  "operation": {
+    "name": "parse-source"
+  },
+  "input": {
+    "fixtures": [
+      {
+        "role": "source",
+        "path": "conformance/fixtures/source/unresolved-reference.nmt",
+        "mediaType": "text/x-notmarkdown"
+      }
+    ]
+  },
+  "expected": {
+    "outcome": "rejected",
+    "assertions": [
+      {
+        "operator": "contains-code",
+        "pointer": "/diagnostics",
+        "value": "NMD_REFERENCE_UNRESOLVED"
+      }
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+[package]
+name = "notmarkdown-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Command-line toolchain for NotMarkdown 0.1"
+
+[[bin]]
+name = "notmarkdown"
+path = "src/main.rs"
+
+[dependencies]
+notmarkdown-core = { path = "../notmarkdown-core" }
+notmarkdown-package = { path = "../notmarkdown-package" }
+serde.workspace = true
+serde_json.workspace = true

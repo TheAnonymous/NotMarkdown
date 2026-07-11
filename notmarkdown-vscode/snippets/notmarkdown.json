@@ -1,0 +1,41 @@
+{
+  "Mermaid diagram": {
+    "prefix": "nmd-mermaid",
+    "description": "Insert an inert Mermaid diagram source block.",
+    "body": [
+      "```mermaid",
+      "flowchart LR",
+      "  ${1:Source} --> ${2:Result}",
+      "```",
+      "$0"
+    ]
+  },
+  "Vega-Lite chart": {
+    "prefix": "nmd-chart",
+    "description": "Insert a static, values-only Vega-Lite chart source block.",
+    "body": [
+      "```vega-lite",
+      "{",
+      "  \"data\": { \"values\": [${1:{ \"label\": \"A\", \"value\": 1 }}] },",
+      "  \"mark\": \"bar\",",
+      "  \"encoding\": {",
+      "    \"x\": { \"field\": \"label\", \"type\": \"nominal\" },",
+      "    \"y\": { \"field\": \"value\", \"type\": \"quantitative\" }",
+      "  }",
+      "}",
+      "```",
+      "$0"
+    ]
+  },
+  "draw.io diagram directive": {
+    "prefix": "nmd-drawio",
+    "description": "Reference an embedded draw.io source representation.",
+    "body": [
+      "!diagram[${1:Diagram caption}] {",
+      "  type: ${2:architecture}",
+      "  source: asset:${3:diagram-source}",
+      "}",
+      "$0"
+    ]
+  }
+}

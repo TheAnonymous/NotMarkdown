@@ -1,0 +1,68 @@
+name: Node toolchain and Studio
+
+on:
+  push:
+    paths:
+      - "notmarkdown-reference-parser/**"
+      - "notmarkdown-web-editor/**"
+      - "conformance/**"
+      - "release/**"
+      - "notmarkdown-cdm-0.1.schema.json"
+      - "notmarkdown-manifest-0.1.schema.json"
+      - ".github/workflows/node.yml"
+  pull_request:
+    paths:
+      - "notmarkdown-reference-parser/**"
+      - "notmarkdown-web-editor/**"
+      - "conformance/**"
+      - "release/**"
+      - "notmarkdown-cdm-0.1.schema.json"
+      - "notmarkdown-manifest-0.1.schema.json"
+      - ".github/workflows/node.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Set up Python for release reproducibility tests
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install reference-toolchain dependencies
+        working-directory: notmarkdown-reference-parser
+        run: npm ci
+
+      - name: Check reference toolchain
+        working-directory: notmarkdown-reference-parser
+        run: npm run check
+
+      - name: Validate conformance metadata
+        run: node conformance/scripts/validate.mjs
+
+      - name: Check deterministic source packaging
+        run: python -B -m unittest discover -s release/tests -v
+
+      - name: Install Studio dependencies
+        working-directory: notmarkdown-web-editor
+        run: npm ci
+
+      - name: Check Studio
+        working-directory: notmarkdown-web-editor
+        run: npm run check

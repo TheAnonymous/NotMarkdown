@@ -1,0 +1,57 @@
+{
+  "$schema": "../schema/case.schema.json",
+  "schemaVersion": "0.1",
+  "id": "package.write.portable-deterministic",
+  "title": "Create identical portable package bytes twice",
+  "status": "active",
+  "area": "determinism",
+  "tags": ["deflate", "determinism", "portable-profile"],
+  "specReferences": [
+    "NotMarkdown-v0.1-Draft.md section 13.2",
+    "NotMarkdown-v0.1-Draft.md section 13.7"
+  ],
+  "operation": {
+    "name": "compare-package-builds",
+    "parameters": {
+      "containerProfile": "portable-0.1",
+      "repetitions": 2
+    }
+  },
+  "input": {
+    "fixtures": [
+      {
+        "role": "source",
+        "path": "notmarkdown-reference-parser/examples/package.nmt",
+        "mediaType": "text/x-notmarkdown"
+      },
+      {
+        "role": "asset",
+        "id": "package-flow",
+        "path": "notmarkdown-reference-parser/examples/package-flow.svg",
+        "mediaType": "image/svg+xml",
+        "sha256": "3e46245e55c94aa33a5e4c9540583fa04b9fb746866045e3814b6adc11c22f85"
+      }
+    ]
+  },
+  "expected": {
+    "outcome": "accepted",
+    "assertions": [
+      {
+        "operator": "equals",
+        "pointer": "/observations/byteEqualRebuilds",
+        "value": true
+      },
+      {
+        "operator": "equals",
+        "pointer": "/observations/packageVerifies",
+        "value": true
+      },
+      {
+        "operator": "array-length",
+        "pointer": "/builds",
+        "value": 2
+      }
+    ]
+  }
+}
+

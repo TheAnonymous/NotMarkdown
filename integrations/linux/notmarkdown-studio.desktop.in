@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=NotMarkdown Studio
+Comment=Open static NotMarkdown documents
+Exec=@NOTMARKDOWN_STUDIO@ %f
+Icon=notmarkdown
+Terminal=false
+MimeType=application/vnd.notmarkdown.document+zip;text/vnd.notmarkdown.source;
+Categories=Office;Utility;
+StartupNotify=true
+

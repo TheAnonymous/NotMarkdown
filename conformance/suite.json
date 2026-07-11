@@ -1,0 +1,21 @@
+{
+  "$schema": "./schema/suite.schema.json",
+  "schemaVersion": "0.1",
+  "name": "NotMarkdown initial conformance suite",
+  "defaultStatuses": ["active"],
+  "cases": [
+    "conformance/cases/source.parse.basic.case.json",
+    "conformance/cases/source.parse.missing-header.case.json",
+    "conformance/cases/source.parse.unresolved-reference.case.json",
+    "conformance/cases/source.parse.static-visuals.case.json",
+    "conformance/cases/import.commonmark.basic.case.json",
+    "conformance/cases/import.commonmark.invalid-utf8.case.json",
+    "conformance/cases/import.github.static-visuals.case.json",
+    "conformance/cases/package.open.modern-example.case.json",
+    "conformance/cases/package.write.modern-deterministic.case.json",
+    "conformance/cases/package.write.portable-deterministic.case.json",
+    "conformance/cases/security.package.tampered-entry.case.json",
+    "conformance/cases/security.package.duplicate-entry.case.json",
+    "conformance/cases/security.package.unsafe-path.case.json"
+  ]
+}

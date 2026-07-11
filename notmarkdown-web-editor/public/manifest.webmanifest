@@ -1,0 +1,49 @@
+{
+  "name": "NotMarkdown Studio",
+  "short_name": "NotMarkdown",
+  "description": "Local-first editor for portable NotMarkdown documents.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f7fb",
+  "theme_color": "#6d5dfc",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "file_handlers": [
+    {
+      "action": "./?file-launch=1",
+      "accept": {
+        "application/vnd.notmarkdown.document+zip": [".nmdoc"],
+        "text/vnd.notmarkdown.source": [".nmt"],
+        "text/plain": [".nmt"]
+      },
+      "launch_type": "single-client"
+    }
+  ],
+  "share_target": {
+    "action": "./share-target",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "files": [
+        {
+          "name": "documents",
+          "accept": [
+            ".nmdoc",
+            ".nmt",
+            "application/vnd.notmarkdown.document+zip",
+            "text/vnd.notmarkdown.source",
+            "text/plain"
+          ]
+        }
+      ]
+    }
+  }
+}

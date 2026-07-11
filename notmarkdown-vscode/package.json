@@ -1,0 +1,135 @@
+{
+  "name": "notmarkdown-vscode",
+  "displayName": "NotMarkdown",
+  "description": "Deterministic NotMarkdown source support and package inspection.",
+  "version": "0.2.0",
+  "publisher": "notmarkdown",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.107.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "notmarkdown",
+    "documentation",
+    "markdown",
+    "nmdoc",
+    "nmt"
+  ],
+  "activationEvents": [
+    "onLanguage:notmarkdown",
+    "onCustomEditor:notmarkdown.package",
+    "onCommand:notmarkdown.preview",
+    "onCommand:notmarkdown.inspect",
+    "onCommand:notmarkdown.verify"
+  ],
+  "main": "./dist/extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Syntax highlighting remains available; local NotMarkdown binaries are not started."
+    }
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "notmarkdown",
+        "aliases": [
+          "NotMarkdown",
+          "notmarkdown"
+        ],
+        "extensions": [
+          ".nmt"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "notmarkdown",
+        "scopeName": "text.notmarkdown",
+        "path": "./syntaxes/notmarkdown.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "notmarkdown",
+        "path": "./snippets/notmarkdown.json"
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "notmarkdown.package",
+        "displayName": "NotMarkdown Package",
+        "selector": [
+          {
+            "filenamePattern": "*.nmdoc"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "commands": [
+      {
+        "command": "notmarkdown.preview",
+        "title": "NotMarkdown: Open Document Preview"
+      },
+      {
+        "command": "notmarkdown.inspect",
+        "title": "NotMarkdown: Inspect Package"
+      },
+      {
+        "command": "notmarkdown.verify",
+        "title": "NotMarkdown: Verify Complete Package"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "notmarkdown.preview",
+          "when": "resourceExtname == .nmt",
+          "group": "navigation"
+        },
+        {
+          "command": "notmarkdown.verify",
+          "when": "resourceExtname == .nmdoc",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "NotMarkdown",
+      "properties": {
+        "notmarkdown.server.path": {
+          "type": "string",
+          "default": "notmarkdown-lsp",
+          "description": "Path to the notmarkdown-lsp binary."
+        },
+        "notmarkdown.tool.path": {
+          "type": "string",
+          "default": "notmarkdown",
+          "description": "Path to the NotMarkdown command-line tool."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit && esbuild src/extension.ts --bundle --platform=node --external:vscode --outfile=dist/extension.js --sourcemap",
+    "check": "npm run build && node --test test/*.test.cjs",
+    "package": "vsce package --allow-missing-repository --out notmarkdown-vscode-0.2.0.vsix"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "@types/vscode": "^1.107.0",
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.28.1",
+    "typescript": "^5.9.3"
+  }
+}

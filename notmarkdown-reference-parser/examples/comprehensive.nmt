@@ -1,0 +1,57 @@
+@notmarkdown 0.1
+
+@document {
+  title: "Comprehensive CDM fixture"
+  language: en
+  theme: technical
+}
+
+# Nodes {#nodes}
+
+!toc{depth=2}
+
+> A **structured** quotation.
+
+!note[Keep this *semantic*.]
+
+```rust
+fn main() {}
+```
+
+## Rich content
+
+A paragraph with `code`, [an external link](https://example.org), [the heading](#nodes), ![an inline icon](asset:inline-icon), and $x+1$.
+
+## Media
+
+!audio[Interview](asset:interview) {
+  layout: wide
+  chapters: asset:interview-chapters
+  transcript: asset:interview-transcript
+  start: 00:00:12
+}
+
+!video[Demonstration](asset:demo) {
+  poster: asset:demo-poster
+  captions.en: asset:demo-captions
+}
+
+### Data views
+
+!diagram[System flow] {
+  type: architecture
+  source: asset:diagram-source
+}
+
+!chart[Measurements] {
+  type: line
+  data: asset:chart-data
+}
+
+!math[Equation] {
+  notation: asciimath
+  source: "x^2 + y^2"
+}
+
+!attachment[Dataset](asset:dataset) {
+}

@@ -1,0 +1,302 @@
+(*
+  NotMarkdown source grammar 0.1
+  Status: normative grammar draft
+
+  The grammar defines accepted surface forms. Rules marked CONSTRAINT are
+  checked after recognition and are equally normative. Block containers are
+  scanned line by line before inline parsing.
+*)
+
+document          = header, newline, { blank-line }, [ document-metadata ],
+                    { blank-line | block }, end-of-file ;
+header            = "@notmarkdown", spaces, version ;
+version           = "0.1" ;
+document-metadata = "@document", { space }, block-map ;
+
+block             = fenced-code
+                  | atx-heading
+                  | thematic-break
+                  | block-quote
+                  | unordered-list
+                  | ordered-list
+                  | block-directive
+                  | footnote-definition
+                  | paragraph ;
+
+(* Lines and whitespace *)
+
+newline           = U+000A ;
+blank-line        = { horizontal-space }, newline ;
+space             = U+0020 ;
+tab               = U+0009 ;
+spaces            = space, { space } ;
+horizontal-space  = space | tab ;
+indent-unit       = space, space ;
+end-of-file       = ? end of input ? ;
+block-line        = ? any valid non-blank source line ending in newline ? ;
+
+(* Headings and breaks *)
+
+atx-heading       = heading-mark, spaces, inline-sequence,
+                    [ spaces, node-id ], newline ;
+heading-mark      = "#" | "##" | "###" | "####" | "#####" | "######" ;
+node-id           = "{#", identifier, "}" ;
+thematic-break    = "---", newline ;
+
+(* Quotations *)
+
+block-quote       = quote-line, { quote-line | quoted-blank-line } ;
+quote-line        = ">", [ space ], block-line ;
+quoted-blank-line = ">", { horizontal-space }, newline ;
+
+(* Lists *)
+
+unordered-list    = unordered-item, { unordered-item | nested-list-line } ;
+unordered-item    = list-indent, "-", spaces, [ task-marker ],
+                    item-first-line, { item-continuation } ;
+
+ordered-list      = ordered-item, { ordered-item | nested-list-line } ;
+ordered-item      = list-indent, ordered-marker, spaces, [ task-marker ],
+                    item-first-line, { item-continuation } ;
+ordered-marker    = positive-integer, "." ;
+task-marker       = "[ ]", spaces | "[x]", spaces | "[X]", spaces ;
+
+list-indent       = { indent-unit } ;
+nested-list-line  = indent-unit, block-line ;
+item-first-line   = block-line ;
+item-continuation = list-indent, indent-unit, block-line ;
+
+(*
+  CONSTRAINT LIST-001:
+  Markers after the first item of one ordered list MUST be "1.".
+
+  CONSTRAINT LIST-002:
+  The first ordered marker is the start value. A value other than 1 is allowed
+  only on the first item.
+
+  CONSTRAINT LIST-003:
+  Each nesting level is exactly two U+0020 spaces. Tabs are not indentation.
+
+  CONSTRAINT LIST-004:
+  A task marker is static state and creates checked=false or checked=true.
+*)
+
+(* Fenced code. The grave terminal is U+0060. *)
+
+grave             = U+0060 ;
+fence             = grave, grave, grave ;
+fenced-code       = fence-open, { code-line }, fence-close ;
+fence-open        = fence, [ language-id ], newline ;
+fence-close       = fence, newline | fence, end-of-file ;
+language-id       = language-char, { language-char } ;
+language-char     = ascii-letter | digit | "_" | "+" | "." | "-" ;
+code-line         = ? any sequence ending in newline that is not fence-close ? ;
+
+(*
+  CONSTRAINT CODE-001:
+  Closing fences contain exactly three U+0060 scalars and begin at the same
+  container indentation as the opening fence.
+
+  CONSTRAINT CODE-002:
+  An unclosed fenced block is a fatal parse error.
+*)
+
+(* Block directives *)
+
+block-directive   = media-directive
+                  | toc-directive
+                  | short-callout
+                  | structured-directive
+                  | extension-directive ;
+media-directive   = image-directive | audio-directive | video-directive ;
+toc-directive     = "!toc", [ "{depth=", heading-depth, "}" ], newline ;
+heading-depth     = "1" | "2" | "3" | "4" | "5" | "6" ;
+image-directive   = "!", label, target, [ attributes ], newline ;
+audio-directive   = "!audio", label, target, [ attributes ], newline ;
+video-directive   = "!video", label, target, [ attributes ], newline ;
+short-callout     = "!", callout-name, label, [ attributes ], newline ;
+callout-name      = "note" | "tip" | "warning" | "danger" ;
+
+structured-directive
+                  = "!", core-directive-name, label, [ target ],
+                    { space }, block-map ;
+core-directive-name
+                  = "figure" | "gallery" | "diagram" | "chart"
+                  | "math" | "attachment" ;
+extension-directive
+                  = "!", namespaced-name, label, [ target ],
+                    ( attributes, newline | { space }, block-map ) ;
+
+label             = "[", label-content, "]" ;
+label-content     = { label-character | escaped-character } ;
+label-character   = ? Unicode scalar except "[", "]", newline ? ;
+
+target            = "(", resource-reference, ")" ;
+resource-reference
+                  = asset-reference | external-reference
+                  | local-reference | relative-path ;
+asset-reference   = "asset:", identifier ;
+external-reference
+                  = "https://", uri-tail ;
+local-reference   = "file:", uri-tail ;
+uri-tail          = uri-character, { uri-character } ;
+uri-character     = ? valid URI character except whitespace, "(", ")" ? ;
+relative-path     = path-character, { path-character } ;
+path-character    = ? Unicode scalar except control, whitespace, "(", ")" ? ;
+
+(*
+  CONSTRAINT REF-001:
+  File references and bare relative paths are invalid in packaged form.
+
+  CONSTRAINT REF-002:
+  Backslashes and path segments "." and ".." are forbidden in package paths.
+
+  CONSTRAINT MEDIA-001:
+  A line containing only an image directive is promoted to a figure block. An
+  image among other inline content remains an inline image.
+*)
+
+(* Attributes and typed maps *)
+
+attributes        = compact-attributes | block-map ;
+compact-attributes
+                  = "{", compact-pair, { spaces, compact-pair }, "}" ;
+compact-pair      = attribute-key, "=", scalar ;
+
+block-map         = "{", newline, map-entry, { map-entry }, "}", newline ;
+map-entry         = indent-unit, attribute-key, ":", spaces, value, newline ;
+attribute-key     = name-segment, { ".", name-segment } ;
+value             = scalar | inline-array | inline-map ;
+scalar            = quoted-string | boolean | integer | bare-value ;
+boolean           = "true" | "false" ;
+integer           = [ "-" ], digit, { digit } ;
+bare-value        = bare-char, { bare-char } ;
+bare-char         = ascii-letter | digit | "_" | "-" | "." | ":"
+                  | "/" | "+" ;
+inline-array      = "[", [ scalar, { ",", { space }, scalar } ], "]" ;
+inline-map        = "{", [ compact-pair, { spaces, compact-pair } ], "}" ;
+
+quoted-string     = quote, { string-character | escape-sequence }, quote ;
+quote             = U+0022 ;
+reverse-solidus   = U+005C ;
+string-character = ? Unicode scalar except quote, reverse-solidus, control ? ;
+escape-sequence   = reverse-solidus,
+                    ( quote | reverse-solidus | "n" | "r" | "t"
+                    | "u", hex-digit, hex-digit, hex-digit, hex-digit ) ;
+
+(*
+  CONSTRAINT ATTR-001:
+  Duplicate keys in one attribute object are fatal errors.
+
+  CONSTRAINT ATTR-002:
+  Unknown unqualified core attributes are fatal errors.
+
+  CONSTRAINT ATTR-003:
+  Compact and block maps produce the same typed attribute object.
+*)
+
+(* Definitions and paragraphs *)
+
+footnote-definition
+                  = "[^", identifier, "]:", spaces, block-line,
+                    { indent-unit, block-line } ;
+
+paragraph         = paragraph-line, { paragraph-line },
+                    ( blank-line | end-of-file ) ;
+paragraph-line    = inline-sequence, newline ;
+
+(*
+  CONSTRAINT BLOCK-001:
+  Block recognition uses the order in the block rule. A paragraph cannot
+  consume a line beginning another valid block at its current indentation.
+
+  CONSTRAINT BLOCK-002:
+  A source newline inside a paragraph contributes one semantic space. A
+  reverse-solidus immediately before newline creates hardBreak instead.
+*)
+
+(* Inline recognition *)
+
+inline-sequence   = inline-element, { inline-element } ;
+inline-element    = code-span
+                  | inline-image
+                  | link
+                  | strong
+                  | emphasis
+                  | footnote-reference
+                  | cross-reference
+                  | math-inline
+                  | escaped-character
+                  | hard-break
+                  | text-run ;
+
+code-span         = grave, code-span-content, grave ;
+code-span-content = { ? Unicode scalar except grave or newline ? } ;
+inline-image      = "!", label, target, [ compact-attributes ] ;
+link              = label, target ;
+
+strong            = "**", strong-content, "**"
+                  | "__", strong-underscore-content, "__" ;
+emphasis          = "*", emphasis-content, "*"
+                  | "_", emphasis-underscore-content, "_" ;
+strong-content    = inline-non-star, { inline-non-star } ;
+emphasis-content  = inline-non-star, { inline-non-star } ;
+strong-underscore-content
+                  = inline-non-underscore, { inline-non-underscore } ;
+emphasis-underscore-content
+                  = inline-non-underscore, { inline-non-underscore } ;
+inline-non-star   = ? inline input not beginning or ending with "*" ? ;
+inline-non-underscore
+                  = ? inline input not beginning or ending with "_" ? ;
+
+footnote-reference
+                  = "[^", identifier, "]" ;
+cross-reference   = "[", label-content, "]", "(#", identifier, ")" ;
+math-inline       = "$", math-content, "$" ;
+math-content      = { ? Unicode scalar except unescaped "$" or newline ? } ;
+
+escaped-character = reverse-solidus, escapable ;
+escapable         = reverse-solidus | "*" | "_" | grave | "[" | "]"
+                  | "(" | ")" | "#" | "!" | "{" | "}" | "$" | ">"
+                  | "-" | "." ;
+hard-break        = reverse-solidus, newline ;
+text-run          = text-character, { text-character } ;
+text-character    = ? Unicode scalar not beginning another inline element ? ;
+
+(*
+  CONSTRAINT INLINE-001:
+  Inline tokens are recognized in the order shown by inline-element.
+
+  CONSTRAINT INLINE-002:
+  Emphasis delimiters open only before a non-whitespace scalar and close only
+  after a non-whitespace scalar.
+
+  CONSTRAINT INLINE-003:
+  Runs of three or more unescaped "*" or "_" are fatal in 0.1. Nested strong
+  and emphasis must use different delimiter characters.
+
+  CONSTRAINT INLINE-004:
+  An underscore between two Unicode letters or digits is literal text.
+
+  CONSTRAINT INLINE-005:
+  Inline constructs cannot cross paragraph or block boundaries.
+*)
+
+(* Names and characters *)
+
+identifier        = ascii-letter, { ascii-letter | digit | "_" | "-" | "." } ;
+namespaced-name   = name-segment, ".", name-segment,
+                    { ".", name-segment } ;
+name-segment      = lowercase-letter, { lowercase-letter | digit | "-" } ;
+positive-integer  = nonzero-digit, { digit } ;
+ascii-letter      = uppercase-letter | lowercase-letter ;
+uppercase-letter  = "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I"
+                  | "J" | "K" | "L" | "M" | "N" | "O" | "P" | "Q" | "R"
+                  | "S" | "T" | "U" | "V" | "W" | "X" | "Y" | "Z" ;
+lowercase-letter  = "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i"
+                  | "j" | "k" | "l" | "m" | "n" | "o" | "p" | "q" | "r"
+                  | "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z" ;
+digit             = "0" | nonzero-digit ;
+nonzero-digit     = "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
+hex-digit         = digit | "a" | "b" | "c" | "d" | "e" | "f"
+                  | "A" | "B" | "C" | "D" | "E" | "F" ;

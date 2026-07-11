@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://notmarkdown.org/schema/manifest/0.1",
+  "title": "NotMarkdown Package Manifest 0.1",
+  "type": "object",
+  "required": [
+    "format",
+    "packageVersion",
+    "source",
+    "sourceSha256",
+    "containerProfile",
+    "themeProfile",
+    "mediaProfile",
+    "assets"
+  ],
+  "properties": {
+    "format": { "const": "notmarkdown" },
+    "packageVersion": { "const": "0.1" },
+    "source": { "const": "document.nmt" },
+    "sourceSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "containerProfile": {
+      "enum": ["portable-0.1", "modern-0.1"]
+    },
+    "themeProfile": { "const": "0.1" },
+    "mediaProfile": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "assets": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z][A-Za-z0-9._-]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/asset"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "asset": {
+      "type": "object",
+      "required": ["kind", "representations"],
+      "properties": {
+        "kind": {
+          "enum": ["image", "audio", "video", "diagram", "data", "attachment"]
+        },
+        "representations": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/representation" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "representation": {
+      "type": "object",
+      "required": [
+        "path",
+        "mediaType",
+        "role",
+        "bytes",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^assets/[A-Za-z0-9][A-Za-z0-9._-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)*$"
+        },
+        "mediaType": {
+          "type": "string",
+          "pattern": "^[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+$"
+        },
+        "role": {
+          "enum": [
+            "playback",
+            "original",
+            "fallback",
+            "poster",
+            "thumbnail",
+            "waveform",
+            "captions",
+            "transcript",
+            "chapters",
+            "source",
+            "data"
+          ]
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

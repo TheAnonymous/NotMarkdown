@@ -1,0 +1,42 @@
+{
+  "$schema": "../schema/case.schema.json",
+  "schemaVersion": "0.1",
+  "id": "import.commonmark.invalid-utf8",
+  "title": "Reject a CommonMark byte stream that is not UTF-8",
+  "description": "The inline fixture contains an invalid 0xff byte after otherwise ordinary Markdown text.",
+  "status": "active",
+  "area": "markdown-import",
+  "tags": ["commonmark", "import", "invalid-utf8"],
+  "specReferences": [
+    "NotMarkdown-v0.1-Draft.md section 10.7",
+    "NotMarkdown-v0.1-Draft.md section 17"
+  ],
+  "operation": {
+    "name": "import-markdown",
+    "parameters": {
+      "dialect": "commonmark",
+      "target": "nmt"
+    }
+  },
+  "input": {
+    "fixtures": [
+      {
+        "role": "input",
+        "bytesBase64": "IyBJbnZhbGlkIFVURi04CgpUZXh0OiD/Cg==",
+        "mediaType": "text/markdown",
+        "dialect": "commonmark"
+      }
+    ]
+  },
+  "expected": {
+    "outcome": "rejected",
+    "assertions": [
+      {
+        "operator": "not-equals",
+        "pointer": "/diagnostics",
+        "value": []
+      }
+    ]
+  },
+  "notes": "Implemented by the bounded Rust 0.11 Compatibility Kit importer. The case deliberately asserts a structured rejection without coupling implementations to human-readable wording."
+}

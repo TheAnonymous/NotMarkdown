@@ -1,0 +1,72 @@
+{
+  "$schema": "../schema/case.schema.json",
+  "schemaVersion": "0.1",
+  "id": "source.parse.basic",
+  "title": "Parse the shared basic NotMarkdown source",
+  "description": "Exercises the header, metadata, heading, inline semantics, nested lists, media references, internal references, and footnotes in the existing shared fixture.",
+  "status": "active",
+  "area": "source-parse",
+  "tags": ["cdm", "shared-fixture"],
+  "specReferences": [
+    "NotMarkdown-v0.1-Draft.md section 10.13",
+    "NotMarkdown-v0.1-Draft.md section 10.15"
+  ],
+  "operation": {
+    "name": "parse-source"
+  },
+  "input": {
+    "fixtures": [
+      {
+        "role": "source",
+        "path": "notmarkdown-reference-parser/examples/basic.nmt",
+        "mediaType": "text/x-notmarkdown"
+      },
+      {
+        "role": "schema",
+        "path": "notmarkdown-cdm-0.1.schema.json",
+        "mediaType": "application/schema+json"
+      }
+    ]
+  },
+  "expected": {
+    "outcome": "accepted",
+    "assertions": [
+      {
+        "operator": "array-length",
+        "pointer": "/diagnostics",
+        "value": 0
+      },
+      {
+        "operator": "equals",
+        "pointer": "/document/type",
+        "value": "document"
+      },
+      {
+        "operator": "equals",
+        "pointer": "/document/modelVersion",
+        "value": "0.1"
+      },
+      {
+        "operator": "equals",
+        "pointer": "/document/metadata/title",
+        "value": "NotMarkdown parser example"
+      },
+      {
+        "operator": "equals",
+        "pointer": "/document/children/0/id",
+        "value": "prototype"
+      },
+      {
+        "operator": "equals",
+        "pointer": "/document/definitions/footnotes/source/0/type",
+        "value": "paragraph"
+      },
+      {
+        "operator": "matches-schema",
+        "pointer": "/document",
+        "value": "notmarkdown-cdm-0.1.schema.json"
+      }
+    ]
+  }
+}
+

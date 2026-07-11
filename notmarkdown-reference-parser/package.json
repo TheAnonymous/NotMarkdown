@@ -1,0 +1,41 @@
+{
+  "name": "@notmarkdown/reference-toolchain",
+  "version": "0.6.0",
+  "description": "Reference parser and single-file toolchain for NotMarkdown 0.1",
+  "type": "module",
+  "bin": {
+    "notmarkdown": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./container": {
+      "types": "./dist/container.d.ts",
+      "import": "./dist/container.js"
+    },
+    "./parser": {
+      "types": "./dist/parser.d.ts",
+      "import": "./dist/parser.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "check": "npm run build && node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "ajv": "^8.17.1",
+    "typescript": "^5.9.3"
+  },
+  "license": "MIT"
+}

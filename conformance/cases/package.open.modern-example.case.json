@@ -1,0 +1,56 @@
+{
+  "$schema": "../schema/case.schema.json",
+  "schemaVersion": "0.1",
+  "id": "package.open.modern-example",
+  "title": "Open the shared modern package fixture",
+  "status": "active",
+  "area": "package-read",
+  "tags": ["modern-profile", "shared-fixture", "zstandard"],
+  "specReferences": [
+    "NotMarkdown-v0.1-Draft.md section 13.1",
+    "NotMarkdown-v0.1-Draft.md section 13.5"
+  ],
+  "operation": {
+    "name": "open-package"
+  },
+  "input": {
+    "fixtures": [
+      {
+        "role": "package",
+        "path": "NotMarkdown-example-modern-0.1.nmdoc",
+        "mediaType": "application/vnd.notmarkdown.document+zip",
+        "sha256": "47ede689bedeb0fa05b95f7e4549c434ecdfd3b318712e29d50720f7d8d1f0fc"
+      },
+      {
+        "role": "schema",
+        "path": "notmarkdown-manifest-0.1.schema.json",
+        "mediaType": "application/schema+json"
+      }
+    ]
+  },
+  "expected": {
+    "outcome": "accepted",
+    "assertions": [
+      {
+        "operator": "equals",
+        "pointer": "/package/manifest/format",
+        "value": "notmarkdown"
+      },
+      {
+        "operator": "equals",
+        "pointer": "/package/manifest/containerProfile",
+        "value": "modern-0.1"
+      },
+      {
+        "operator": "equals",
+        "pointer": "/document/modelVersion",
+        "value": "0.1"
+      },
+      {
+        "operator": "matches-schema",
+        "pointer": "/package/manifest",
+        "value": "notmarkdown-manifest-0.1.schema.json"
+      }
+    ]
+  }
+}

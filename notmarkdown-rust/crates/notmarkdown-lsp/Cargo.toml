@@ -1,0 +1,15 @@
+[package]
+name = "notmarkdown-lsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Editor-neutral Language Server for NotMarkdown 0.1"
+
+[[bin]]
+name = "notmarkdown-lsp"
+path = "src/main.rs"
+
+[dependencies]
+notmarkdown-core = { path = "../notmarkdown-core" }
+serde_json.workspace = true

@@ -1,0 +1,38 @@
+{
+  "$schema": "../schema/case.schema.json",
+  "schemaVersion": "0.1",
+  "id": "security.package.unsafe-path",
+  "title": "Reject a package containing an unsafe archive path",
+  "status": "draft",
+  "area": "security",
+  "tags": ["adversarial", "package", "path-traversal"],
+  "specReferences": [
+    "NotMarkdown-v0.1-Draft.md section 13.1",
+    "NotMarkdown-v0.1-Draft.md section 15"
+  ],
+  "operation": {
+    "name": "open-package"
+  },
+  "input": {
+    "fixtures": [
+      {
+        "role": "package",
+        "path": "NotMarkdown-example-modern-0.1.nmdoc",
+        "mediaType": "application/vnd.notmarkdown.document+zip",
+        "sha256": "47ede689bedeb0fa05b95f7e4549c434ecdfd3b318712e29d50720f7d8d1f0fc"
+      }
+    ],
+    "mutations": [
+      {
+        "kind": "append-unsafe-path-entry",
+        "path": "../escape.txt"
+      }
+    ]
+  },
+  "expected": {
+    "outcome": "rejected",
+    "assertions": []
+  },
+  "notes": "Draft metadata only. A harness must never materialize the unsafe path outside its temporary archive bytes."
+}
+

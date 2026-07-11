@@ -1,0 +1,57 @@
+{
+  "$schema": "../schema/case.schema.json",
+  "schemaVersion": "0.1",
+  "id": "package.write.modern-deterministic",
+  "title": "Create identical modern package bytes twice",
+  "status": "active",
+  "area": "determinism",
+  "tags": ["determinism", "modern-profile", "shared-fixture"],
+  "specReferences": [
+    "NotMarkdown-v0.1-Draft.md section 13.7",
+    "NotMarkdown-v0.1-Draft.md section 14"
+  ],
+  "operation": {
+    "name": "compare-package-builds",
+    "parameters": {
+      "containerProfile": "modern-0.1",
+      "repetitions": 2
+    }
+  },
+  "input": {
+    "fixtures": [
+      {
+        "role": "source",
+        "path": "notmarkdown-reference-parser/examples/package.nmt",
+        "mediaType": "text/x-notmarkdown"
+      },
+      {
+        "role": "asset",
+        "id": "package-flow",
+        "path": "notmarkdown-reference-parser/examples/package-flow.svg",
+        "mediaType": "image/svg+xml",
+        "sha256": "3e46245e55c94aa33a5e4c9540583fa04b9fb746866045e3814b6adc11c22f85"
+      }
+    ]
+  },
+  "expected": {
+    "outcome": "accepted",
+    "assertions": [
+      {
+        "operator": "equals",
+        "pointer": "/observations/byteEqualRebuilds",
+        "value": true
+      },
+      {
+        "operator": "equals",
+        "pointer": "/observations/packageVerifies",
+        "value": true
+      },
+      {
+        "operator": "array-length",
+        "pointer": "/builds",
+        "value": 2
+      }
+    ]
+  }
+}
+

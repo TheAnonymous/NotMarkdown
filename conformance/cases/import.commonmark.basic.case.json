@@ -1,0 +1,51 @@
+{
+  "$schema": "../schema/case.schema.json",
+  "schemaVersion": "0.1",
+  "id": "import.commonmark.basic",
+  "title": "Import a conservative CommonMark document without loss",
+  "description": "Draft contract for headings, paragraphs, emphasis, links, and unordered lists that have direct NotMarkdown equivalents.",
+  "status": "active",
+  "area": "markdown-import",
+  "tags": ["commonmark", "import", "loss-report"],
+  "specReferences": [
+    "NotMarkdown-v0.1-Draft.md section 17"
+  ],
+  "operation": {
+    "name": "import-markdown",
+    "parameters": {
+      "dialect": "commonmark",
+      "target": "nmt"
+    }
+  },
+  "input": {
+    "fixtures": [
+      {
+        "role": "input",
+        "path": "conformance/fixtures/markdown/commonmark-basic.md",
+        "mediaType": "text/markdown",
+        "dialect": "commonmark"
+      }
+    ]
+  },
+  "expected": {
+    "outcome": "accepted",
+    "assertions": [
+      {
+        "operator": "array-length",
+        "pointer": "/losses",
+        "value": 0
+      },
+      {
+        "operator": "equals",
+        "pointer": "/document/type",
+        "value": "document"
+      },
+      {
+        "operator": "equals",
+        "pointer": "/document/children/0/type",
+        "value": "heading"
+      }
+    ]
+  },
+  "notes": "Implemented by the bounded Rust 0.11 Compatibility Kit importer and covered by CLI integration tests."
+}

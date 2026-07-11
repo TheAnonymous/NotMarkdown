@@ -1,0 +1,26 @@
+@notmarkdown 0.1
+
+# Static visual fences
+
+```mermaid
+flowchart LR
+  Source --> Package
+```
+
+```vega-lite
+{"data":{"values":[{"category":"A","value":3}]},"mark":"bar","encoding":{"x":{"field":"category","type":"nominal"},"y":{"field":"value","type":"quantitative"}}}
+```
+
+```vegalite
+{"data":{"values":[{"x":1,"y":2}]},"mark":"line","encoding":{"x":{"field":"x"},"y":{"field":"y"}}}
+```
+
+!diagram[Editable architecture] {
+  type: architecture
+  source: asset:architecture
+}
+
+!chart[Latency] {
+  type: line
+  data: asset:latency
+}

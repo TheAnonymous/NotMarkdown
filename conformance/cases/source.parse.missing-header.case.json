@@ -1,0 +1,35 @@
+{
+  "$schema": "../schema/case.schema.json",
+  "schemaVersion": "0.1",
+  "id": "source.parse.missing-header",
+  "title": "Reject source without the required format header",
+  "status": "active",
+  "area": "source-parse",
+  "tags": ["diagnostic", "invalid-source"],
+  "specReferences": [
+    "NotMarkdown-v0.1-Draft.md section 5",
+    "NotMarkdown-v0.1-Draft.md section 10.13"
+  ],
+  "operation": {
+    "name": "parse-source"
+  },
+  "input": {
+    "fixtures": [
+      {
+        "role": "source",
+        "path": "conformance/fixtures/source/missing-header.nmt",
+        "mediaType": "text/x-notmarkdown"
+      }
+    ]
+  },
+  "expected": {
+    "outcome": "rejected",
+    "assertions": [
+      {
+        "operator": "contains-code",
+        "pointer": "/diagnostics",
+        "value": "NMD_HEADER_REQUIRED"
+      }
+    ]
+  }
+}

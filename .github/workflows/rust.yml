@@ -1,0 +1,51 @@
+name: Rust workspace
+
+on:
+  push:
+    paths:
+      - "notmarkdown-rust/**"
+      - "notmarkdown-reference-parser/**"
+      - "conformance/**"
+      - ".github/workflows/rust.yml"
+  pull_request:
+    paths:
+      - "notmarkdown-rust/**"
+      - "notmarkdown-reference-parser/**"
+      - "conformance/**"
+      - ".github/workflows/rust.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-lint:
+    name: Test and clippy (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        working-directory: notmarkdown-rust
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js for cross-implementation tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Build TypeScript reference parser
+        working-directory: notmarkdown-reference-parser
+        run: npm ci && npm run build
+
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.97.0 --profile minimal --component clippy
+
+      - name: Test workspace
+        run: cargo +1.97.0 test --workspace --locked
+
+      - name: Lint workspace
+        run: cargo +1.97.0 clippy --workspace --all-targets --locked -- -D warnings
