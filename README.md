@@ -24,6 +24,21 @@ Every NotMarkdown editor exposes the same concepts:
 2. **Source** — authoritative UTF-8 text close to Markdown.
 3. **Package** — assets, representations, metadata, profiles, and verification.
 
+## Document appearance and personal reading accessibility
+
+NotMarkdown Studio keeps shareable design choices separate from personal
+reading preferences. A document's choice among seven theme presets—Standard,
+Paper, Technical, Minimal, Sepia, Midnight, or High Contrast—and its semantic
+accent are stored in existing `@document` metadata and therefore travel with
+`.nmt` source and `.nmdoc` packages.
+
+The optional **Dyslexia-friendly** reading mode is local to the browser. It
+changes only the Document view—using bundled OpenDyslexic fonts, a low-glare
+background, generous text spacing, and a shorter line length—without changing
+source, metadata, or package bytes. Studio remembers the preference locally
+when storage is available. It is a user-selectable reading aid, not a medical
+guarantee or a new document theme.
+
 ## Current implementation matrix
 
 | Component | Version | State |

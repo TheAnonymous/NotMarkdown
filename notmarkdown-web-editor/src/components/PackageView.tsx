@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DocumentNode } from "@notmarkdown/reference-toolchain";
 import { sanitizeSvg } from "../core/visual-renderers";
+import { DOCUMENT_THEME_OPTIONS } from "../core/document-appearance";
 import {
   assertRepresentationLoadable,
   assetRepresentations,
@@ -242,9 +243,11 @@ export function PackageView({
               value={String(document.metadata.theme ?? "standard")}
               onChange={(event) => onMetadataChange("theme", event.target.value)}
             >
-              <option value="standard">Standard</option>
-              <option value="paper">Paper</option>
-              <option value="technical">Technical</option>
+              {DOCUMENT_THEME_OPTIONS.map(({ value, label }) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
             </select>
           </label>
           <label>

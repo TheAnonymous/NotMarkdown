@@ -958,13 +958,21 @@ spacing, color mapping, callout appearance, media players, diagrams, print,
 light mode, and dark mode.
 
 A document may select a standard theme but cannot modify individual theme
-rules. The initial candidates are:
+rules. Theme profile `0.1` defines these document-bound values:
 
 - `standard`
 - `paper`
 - `technical`
+- `minimal`
+- `sepia`
+- `midnight`
+- `high-contrast`
 
 Theme names and their visual contracts remain provisional.
+Consequently, this extension does not change the provisional theme profile
+identifier from `0.1`. Documents using the original values need no migration;
+implementations built against an earlier strict `0.1` snapshot may reject only
+documents that select one of the added values.
 
 ### 11.3 Rendering freedom
 

@@ -62,6 +62,32 @@ test("Mermaid preflight permits static source", () => {
   assert.deepEqual(inspected.issues, []);
 });
 
+test("static preflight remains browser-compatible without global Buffer", () => {
+  const buffer = globalThis.Buffer;
+  try {
+    globalThis.Buffer = undefined;
+    const inspected = inspectStaticNotationFence("mermaid", "é", {
+      maxBytes: 1
+    });
+    assert.ok(inspected);
+    assert.equal(inspected.bytes, 2);
+    assert.equal(
+      inspected.issues.some(
+        (issue) => issue.code === "NMD_STATIC_NOTATION_BYTES_LIMIT"
+      ),
+      true
+    );
+
+    const parsed = parse(
+      document(fence + "mermaid", "flowchart LR", "  A --> B", fence)
+    );
+    assert.ok(parsed.document);
+    assert.deepEqual(parsed.diagnostics, []);
+  } finally {
+    globalThis.Buffer = buffer;
+  }
+});
+
 test("Mermaid preflight rejects config, interaction, resources, and active markup", () => {
   const inspected = inspectStaticNotationFence(
     "mermaid",

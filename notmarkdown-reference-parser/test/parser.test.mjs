@@ -103,3 +103,48 @@ test("parses code fences without executing content", () => {
   assert.equal(code.language, "js");
   assert.equal(code.text, "alert(1);");
 });
+
+test("accepts every document theme and rejects unknown theme values", () => {
+  const themes = [
+    "standard",
+    "paper",
+    "technical",
+    "minimal",
+    "sepia",
+    "midnight",
+    "high-contrast"
+  ];
+
+  for (const theme of themes) {
+    const result = parse(
+      [
+        "@notmarkdown 0.1",
+        "",
+        "@document {",
+        `  theme: ${theme}`,
+        "}",
+        "",
+        "# Themed document"
+      ].join("\n")
+    );
+    assert.ok(result.document, theme);
+    assert.equal(result.diagnostics.length, 0, theme);
+    assert.equal(result.document.metadata.theme, theme);
+  }
+
+  const unknown = parse(
+    [
+      "@notmarkdown 0.1",
+      "",
+      "@document {",
+      "  theme: unknown",
+      "}",
+      "",
+      "# Invalid theme"
+    ].join("\n")
+  );
+  assert.equal(unknown.document, undefined);
+  assert.ok(
+    unknown.diagnostics.some((item) => item.code === "NMD_METADATA_INVALID")
+  );
+});

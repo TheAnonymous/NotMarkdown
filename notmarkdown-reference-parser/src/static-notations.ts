@@ -78,7 +78,7 @@ export function inspectStaticNotationFence(
     maxDepth: limits.maxDepth ?? DEFAULT_STATIC_NOTATION_LIMITS.maxDepth,
     maxNodes: limits.maxNodes ?? DEFAULT_STATIC_NOTATION_LIMITS.maxNodes
   };
-  const bytes = Buffer.byteLength(source, "utf8");
+  const bytes = new TextEncoder().encode(source).byteLength;
   let lines = source === "" ? 0 : 1;
   for (let index = 0; index < source.length; index += 1) {
     if (source.charCodeAt(index) === 10) lines += 1;

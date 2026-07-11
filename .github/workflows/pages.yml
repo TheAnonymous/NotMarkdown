@@ -15,6 +15,7 @@ on:
       - "notmarkdown-manifest-0.1.schema.json"
       - "notmarkdown-source-0.1.ebnf"
       - "LICENSE"
+      - "LICENSES/**"
       - "LICENSE-POLICY.md"
       - "THIRD_PARTY_NOTICES.md"
       - ".github/workflows/pages.yml"
@@ -96,3 +97,7 @@ jobs:
           grep --fixed-strings "studio/index.html?embed=1" landing.html
           grep --fixed-strings "Content-Security-Policy" studio.html
           curl --fail --silent --show-error --head "${PAGE_URL}downloads/NotMarkdown-visuals-0.1.nmdoc"
+          curl --fail --silent --show-error --head "${PAGE_URL}studio/accessibility-fonts.css"
+          curl --fail --silent --show-error --head "${PAGE_URL}studio/fonts/OpenDyslexic-Regular.woff2"
+          curl --fail --silent --show-error --head "${PAGE_URL}studio/fonts/OpenDyslexic-Bold.woff2"
+          curl --fail --silent --show-error --head "${PAGE_URL}docs/LICENSES/OFL-1.1.txt"

@@ -887,7 +887,13 @@ class Parser {
         result.language = value;
       } else if (
         key === "theme" &&
-        (value === "standard" || value === "paper" || value === "technical")
+        (value === "standard" ||
+          value === "paper" ||
+          value === "technical" ||
+          value === "minimal" ||
+          value === "sepia" ||
+          value === "midnight" ||
+          value === "high-contrast")
       ) result.theme = value;
       else if (
         key === "accent" &&

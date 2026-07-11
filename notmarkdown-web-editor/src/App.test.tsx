@@ -1,6 +1,13 @@
 import { StrictMode } from "react";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within
+} from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { parse } from "@notmarkdown/reference-toolchain";
 import App, { cacheRepresentationIfCurrent } from "./App";
 import { DocumentEditor } from "./components/DocumentEditor";
@@ -9,6 +16,36 @@ import type {
   BrowserLaunchQueue,
   LaunchParams
 } from "./core/file-intake";
+import { DOCUMENT_THEME_OPTIONS } from "./core/document-appearance";
+
+const storedValues = new Map<string, string>();
+const localStorage = {
+  get length() {
+    return storedValues.size;
+  },
+  clear() {
+    storedValues.clear();
+  },
+  getItem(key: string) {
+    return storedValues.get(key) ?? null;
+  },
+  key(index: number) {
+    return [...storedValues.keys()][index] ?? null;
+  },
+  removeItem(key: string) {
+    storedValues.delete(key);
+  },
+  setItem(key: string, value: string) {
+    storedValues.set(key, String(value));
+  }
+} satisfies Storage;
+
+Object.defineProperty(window, "localStorage", {
+  value: localStorage,
+  configurable: true
+});
+
+beforeEach(() => localStorage.clear());
 
 describe("NotMarkdown Studio", () => {
   it("exposes all three views and keeps them navigable", async () => {
@@ -24,6 +61,170 @@ describe("NotMarkdown Studio", () => {
     expect(await screen.findByText("Document metadata")).toBeVisible();
     expect(screen.getByText("No embedded assets yet")).toBeVisible();
     expect(screen.getByText("Generated previews")).toBeVisible();
+  });
+
+  it("inserts a deferred package image and synchronizes Source and Package usage", async () => {
+    const rendered = render(<App />);
+    await screen.findByRole("heading", {
+      name: "One document. Three honest views.",
+      level: 1
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Package/ }));
+    await screen.findByText("Document metadata");
+    fireEvent.change(screen.getByLabelText("New asset ID"), {
+      target: { value: "rotor-image" }
+    });
+    fireEvent.change(screen.getByLabelText("Add file"), {
+      target: {
+        files: [
+          new File([new Uint8Array([137, 80, 78, 71])], "rotor.png", {
+            type: "image/png"
+          })
+        ]
+      }
+    });
+    expect(await screen.findByText("rotor.png")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: /Document/ }));
+    await screen.findByRole("heading", {
+      name: "One document. Three honest views."
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Image" }));
+    const dialog = await screen.findByRole("dialog", { name: "Insert image" });
+    fireEvent.click(
+      within(dialog).getByRole("radio", { name: /asset:rotor-image/ })
+    );
+    fireEvent.change(within(dialog).getByLabelText("Alt text"), {
+      target: { value: "Rotor assembly" }
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Insert" }));
+
+    expect(
+      await screen.findByRole("img", { name: "Rotor assembly" })
+    ).toHaveAttribute("src", "blob:notmarkdown-test");
+    fireEvent.click(screen.getByRole("button", { name: /Source/ }));
+    await waitFor(() =>
+      expect(rendered.container.querySelector(".cm-content")).toHaveTextContent(
+        "![Rotor assembly](asset:rotor-image)"
+      )
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Package/ }));
+    const assetGrid = rendered.container.querySelector(".asset-grid");
+    expect(assetGrid).not.toBeNull();
+    const assetTitle = within(assetGrid as HTMLElement).getByText("rotor-image");
+    const card = assetTitle.closest(".asset-card");
+    expect(card).not.toBeNull();
+    expect(within(card as HTMLElement).getByText("used")).toBeVisible();
+    expect(within(card as HTMLElement).getByText(/loaded/)).toBeVisible();
+  });
+
+  it("uploads eager images with normalized collision-safe IDs and immediate previews", async () => {
+    const rendered = render(<App />);
+    await screen.findByRole("heading", {
+      name: "One document. Three honest views.",
+      level: 1
+    });
+    const file = () =>
+      new File([new Uint8Array([137, 80, 78, 71])], "2026 Launch.PNG", {
+        type: "image/png",
+        lastModified: 42
+      });
+
+    const uploadAndInsert = async (alt: string) => {
+      fireEvent.click(screen.getByRole("button", { name: "Image" }));
+      const dialog = await screen.findByRole("dialog", { name: "Insert image" });
+      fireEvent.change(within(dialog).getByLabelText("Choose a local image"), {
+        target: { files: [file()] }
+      });
+      expect(
+        await within(dialog).findByRole("img", {
+          name: "Preview of 2026 Launch.PNG"
+        })
+      ).toHaveAttribute("src", "blob:notmarkdown-test");
+      fireEvent.change(within(dialog).getByLabelText("Alt text"), {
+        target: { value: alt }
+      });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Insert" }));
+      expect(await screen.findByRole("img", { name: alt })).toHaveAttribute(
+        "src",
+        "blob:notmarkdown-test"
+      );
+    };
+
+    await uploadAndInsert("Launch overview");
+    await uploadAndInsert("Launch detail");
+
+    fireEvent.click(screen.getByRole("button", { name: /Source/ }));
+    await waitFor(() => {
+      const source = rendered.container.querySelector(".cm-content");
+      expect(source).toHaveTextContent(
+        "![Launch overview](asset:image-2026-launch)"
+      );
+      expect(source).toHaveTextContent(
+        "![Launch detail](asset:image-2026-launch-2)"
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Package/ }));
+    await screen.findByText("Document metadata");
+    const assetGrid = rendered.container.querySelector(".asset-grid");
+    expect(assetGrid).not.toBeNull();
+    for (const id of ["image-2026-launch", "image-2026-launch-2"]) {
+      const title = within(assetGrid as HTMLElement).getByText(id, {
+        selector: ".asset-title strong"
+      });
+      const card = title.closest(".asset-card");
+      expect(card).not.toBeNull();
+      expect(within(card as HTMLElement).getByText("used")).toBeVisible();
+      expect(
+        within(card as HTMLElement).getByText("playback · image/png")
+      ).toBeVisible();
+      expect(within(card as HTMLElement).getByText(/loaded/)).toBeVisible();
+    }
+  });
+
+  it("does not leave source or package assets behind when an image upload fails", async () => {
+    const rendered = render(<App />);
+    await screen.findByRole("heading", {
+      name: "One document. Three honest views.",
+      level: 1
+    });
+    const read = vi.fn(async (): Promise<ArrayBuffer> => {
+      throw new Error("local image read failed");
+    });
+    const file = {
+      name: "broken.png",
+      type: "image/png",
+      size: 4,
+      lastModified: 17,
+      arrayBuffer: read
+    } as File;
+
+    fireEvent.click(screen.getByRole("button", { name: "Image" }));
+    const dialog = await screen.findByRole("dialog", { name: "Insert image" });
+    fireEvent.change(within(dialog).getByLabelText("Choose a local image"), {
+      target: { files: [file] }
+    });
+    fireEvent.change(within(dialog).getByLabelText("Alt text"), {
+      target: { value: "Broken upload" }
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Insert" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "local image read failed"
+    );
+    expect(read).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: /Source/ }));
+    await waitFor(() => {
+      const source = rendered.container.querySelector(".cm-content");
+      expect(source).not.toHaveTextContent("asset:broken");
+      expect(source).not.toHaveTextContent("Broken upload");
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Package/ }));
+    expect(await screen.findByText("No embedded assets yet")).toBeVisible();
   });
 
   it("provides automatic outline and local full-text search in Document view", async () => {
@@ -126,6 +327,239 @@ describe("NotMarkdown Studio", () => {
       await screen.findByRole("button", { name: "Load image · asset:rotor" })
     );
     expect(load).toHaveBeenCalledWith("rotor");
+  });
+
+  it("exposes the document theme, accent, and reading mode as data attributes", async () => {
+    const rendered = render(<App />);
+    await screen.findByRole("heading", {
+      name: "One document. Three honest views.",
+      level: 1
+    });
+
+    const workspace = rendered.container.querySelector(".document-workspace");
+    expect(workspace).toHaveAttribute("data-theme", "technical");
+    expect(workspace).toHaveAttribute("data-accent", "violet");
+    expect(workspace).toHaveAttribute("data-reading-mode", "default");
+    expect(
+      screen.getByRole("button", { name: "Dyslexia-friendly" })
+    ).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("rewrites the document theme and synchronizes appearance across views", async () => {
+    const rendered = render(<App />);
+    await screen.findByRole("heading", {
+      name: "One document. Three honest views.",
+      level: 1
+    });
+
+    const expectedThemes = DOCUMENT_THEME_OPTIONS.map(({ label }) => label);
+    const documentTheme = screen.getByRole("combobox", { name: "Theme" });
+    expect(
+      within(documentTheme).getAllByRole("option").map((option) => option.textContent)
+    ).toEqual(expectedThemes);
+    fireEvent.change(documentTheme, {
+      target: { value: "midnight" }
+    });
+    expect(rendered.container.querySelector(".document-workspace")).toHaveAttribute(
+      "data-theme",
+      "midnight"
+    );
+    fireEvent.click(screen.getByTitle("Heading"));
+    expect(rendered.container.querySelector(".document-workspace")).toHaveAttribute(
+      "data-theme",
+      "midnight"
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Package/ }));
+    await screen.findByText("Document metadata");
+    const packageTheme = screen.getByRole("combobox", { name: "Theme" });
+    expect(packageTheme).toHaveValue("midnight");
+    expect(
+      within(packageTheme).getAllByRole("option").map((option) => option.textContent)
+    ).toEqual(expectedThemes);
+    fireEvent.change(screen.getByRole("combobox", { name: "Accent" }), {
+      target: { value: "green" }
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Document/ }));
+    await screen.findByRole("heading", {
+      name: "One document. Three honest views."
+    });
+    const workspace = rendered.container.querySelector(".document-workspace");
+    expect(workspace).toHaveAttribute("data-theme", "midnight");
+    expect(workspace).toHaveAttribute("data-accent", "green");
+    fireEvent.click(screen.getByRole("button", { name: "Dyslexia-friendly" }));
+    expect(workspace).toHaveAttribute("data-reading-mode", "dyslexia");
+    expect(workspace).toHaveAttribute("data-theme", "midnight");
+    expect(workspace).toHaveAttribute("data-accent", "green");
+
+    fireEvent.click(screen.getByRole("button", { name: /Source/ }));
+    await screen.findByText("@notmarkdown 0.1");
+    await waitFor(() => {
+      const source = rendered.container.querySelector(".cm-content");
+      expect(source).toHaveTextContent("theme: midnight");
+      expect(source).toHaveTextContent("accent: green");
+      expect(source).not.toHaveTextContent(/dyslexia/i);
+    });
+  });
+
+  it("keeps the personal reading mode through view, document, and app remounts", async () => {
+    const first = render(<App />);
+    const toggle = await screen.findByRole("button", {
+      name: "Dyslexia-friendly"
+    });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    expect(first.container.querySelector(".document-workspace")).toHaveAttribute(
+      "data-reading-mode",
+      "dyslexia"
+    );
+    await waitFor(() =>
+      expect(
+        window.localStorage.getItem("notmarkdown.studio.reading-mode")
+      ).toBe("true")
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Source/ }));
+    await screen.findByText("@notmarkdown 0.1");
+    expect(first.container.querySelector(".cm-content")).not.toHaveTextContent(
+      /dyslexia/i
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Document/ }));
+    expect(
+      await screen.findByRole("button", { name: "Dyslexia-friendly" })
+    ).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "New" }));
+    await screen.findByRole("heading", { name: "Untitled document", level: 1 });
+    expect(first.container.querySelector(".document-workspace")).toHaveAttribute(
+      "data-reading-mode",
+      "dyslexia"
+    );
+
+    first.unmount();
+    const second = render(<App />);
+    expect(
+      await screen.findByRole("button", { name: "Dyslexia-friendly" })
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(second.container.querySelector(".document-workspace")).toHaveAttribute(
+      "data-reading-mode",
+      "dyslexia"
+    );
+  });
+
+  it("blocks theme changes for invalid source but keeps reading mode available", async () => {
+    let consumer: ((params: LaunchParams) => void | Promise<void>) | undefined;
+    const launchQueue: BrowserLaunchQueue = {
+      setConsumer(next) {
+        consumer = next;
+      }
+    };
+    Object.defineProperty(window, "launchQueue", {
+      value: launchQueue,
+      configurable: true
+    });
+
+    try {
+      const rendered = render(<App />);
+      await screen.findByRole("heading", {
+        name: "One document. Three honest views.",
+        level: 1
+      });
+      await act(async () => {
+        await consumer?.({
+          files: [
+            {
+              getFile: async () =>
+                new File(["not a notmarkdown document"], "invalid.nmt", {
+                  type: "text/vnd.notmarkdown.source"
+                })
+            }
+          ]
+        });
+      });
+
+      expect(
+        await screen.findByText(/source opened with diagnostics/i)
+      ).toBeVisible();
+      const theme = screen.getByRole("combobox", { name: "Theme" });
+      expect(theme).toBeDisabled();
+      const previousTheme = rendered.container
+        .querySelector(".document-workspace")
+        ?.getAttribute("data-theme");
+      fireEvent.change(theme, { target: { value: "paper" } });
+      expect(rendered.container.querySelector(".document-workspace")).toHaveAttribute(
+        "data-theme",
+        previousTheme
+      );
+
+      const toggle = screen.getByRole("button", {
+        name: "Dyslexia-friendly"
+      });
+      expect(toggle).toBeEnabled();
+      fireEvent.click(toggle);
+      expect(toggle).toHaveAttribute("aria-pressed", "true");
+      expect(rendered.container.querySelector(".document-workspace")).toHaveAttribute(
+        "data-reading-mode",
+        "dyslexia"
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: /Source/ }));
+      await waitFor(() =>
+        expect(rendered.container.querySelector(".cm-content")).toHaveTextContent(
+          "not a notmarkdown document"
+        )
+      );
+    } finally {
+      Object.defineProperty(window, "launchQueue", {
+        value: undefined,
+        configurable: true
+      });
+    }
+  });
+
+  it("keeps reading mode usable when browser storage throws", async () => {
+    const getItem = vi
+      .spyOn(window.localStorage, "getItem")
+      .mockImplementation(() => {
+        throw new DOMException("Storage unavailable", "SecurityError");
+      });
+    const setItem = vi
+      .spyOn(window.localStorage, "setItem")
+      .mockImplementation(() => {
+        throw new DOMException("Storage unavailable", "SecurityError");
+      });
+
+    try {
+      const rendered = render(<App />);
+      const toggle = await screen.findByRole("button", {
+        name: "Dyslexia-friendly"
+      });
+      expect(toggle).toHaveAttribute("aria-pressed", "false");
+      expect(getItem).toHaveBeenCalledWith("notmarkdown.studio.reading-mode");
+
+      fireEvent.click(toggle);
+      expect(toggle).toHaveAttribute("aria-pressed", "true");
+      expect(rendered.container.querySelector(".document-workspace")).toHaveAttribute(
+        "data-reading-mode",
+        "dyslexia"
+      );
+      expect(setItem).toHaveBeenCalled();
+
+      fireEvent.click(screen.getByRole("button", { name: "New" }));
+      await screen.findByRole("heading", {
+        name: "Untitled document",
+        level: 1
+      });
+      expect(
+        screen.getByRole("button", { name: "Dyslexia-friendly" })
+      ).toHaveAttribute("aria-pressed", "true");
+    } finally {
+      getItem.mockRestore();
+      setItem.mockRestore();
+    }
   });
 
   it("does not let a stale deferred read overwrite a replaced representation", () => {

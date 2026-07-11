@@ -143,10 +143,19 @@ export interface VideoNode {
   children: BlockNode[];
 }
 
+export type DocumentTheme =
+  | "standard"
+  | "paper"
+  | "technical"
+  | "minimal"
+  | "sepia"
+  | "midnight"
+  | "high-contrast";
+
 export interface DocumentMetadata {
   title?: string;
   language?: string;
-  theme?: "standard" | "paper" | "technical";
+  theme?: DocumentTheme;
   accent?: "blue" | "green" | "orange" | "violet" | "neutral";
   density?: "compact" | "comfortable";
   [namespacedKey: string]: unknown;

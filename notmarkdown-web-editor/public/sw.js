@@ -1,4 +1,4 @@
-const APP_CACHE = "notmarkdown-studio-v3";
+const APP_CACHE = "notmarkdown-studio-v4";
 const SHARE_CACHE = "notmarkdown-share-target-v1";
 const SCOPE = self.registration.scope;
 const ROOT = new URL("./", SCOPE).href;
@@ -7,7 +7,10 @@ const SHARED_FILE = new URL("__notmarkdown_share_target__", SCOPE).href;
 const SHELL = [
   ROOT,
   new URL("manifest.webmanifest", SCOPE).href,
-  new URL("icon.svg", SCOPE).href
+  new URL("icon.svg", SCOPE).href,
+  new URL("accessibility-fonts.css", SCOPE).href,
+  new URL("fonts/OpenDyslexic-Regular.woff2", SCOPE).href,
+  new URL("fonts/OpenDyslexic-Bold.woff2", SCOPE).href
 ];
 
 self.addEventListener("install", (event) => {

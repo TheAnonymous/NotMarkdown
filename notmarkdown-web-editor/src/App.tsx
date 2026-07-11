@@ -22,6 +22,14 @@ import {
   requireNotMarkdownFile,
   takePendingSharedFile
 } from "./core/file-intake";
+import {
+  loadReadingMode,
+  normalizeDocumentAccent,
+  normalizeDocumentTheme,
+  storeReadingMode,
+  type DocumentTheme
+} from "./core/document-appearance";
+import { createImageAsset } from "./core/image-authoring";
 
 const DocumentEditor = lazy(() =>
   import("./components/DocumentEditor").then((module) => ({
@@ -89,6 +97,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [searchAssetsLoading, setSearchAssetsLoading] = useState(false);
+  const [readingMode, setReadingMode] = useState(loadReadingMode);
   const openInput = useRef<HTMLInputElement>(null);
   const assetsRef = useRef<AssetData[]>([]);
   const searchLoad = useRef<Promise<void> | undefined>(undefined);
@@ -101,10 +110,16 @@ export default function App() {
     (id) => !assets.some((asset) => asset.id === id)
   );
   const valid = !diagnostics.some((diagnostic) => diagnostic.severity === "error");
+  const theme = normalizeDocumentTheme(document.metadata.theme);
+  const accent = normalizeDocumentAccent(document.metadata.accent);
 
   useEffect(() => {
     assetsRef.current = assets;
   }, [assets]);
+
+  useEffect(() => {
+    storeReadingMode(readingMode);
+  }, [readingMode]);
 
   const applySource = (next: string) => {
     setSource(next);
@@ -159,6 +174,16 @@ export default function App() {
     setAssetVersion((value) => value + 1);
     return data;
   }, []);
+
+  const addImageAsset = useCallback(async (file: File): Promise<string> => {
+    const snapshot = assetsRef.current;
+    const asset = await createImageAsset(
+      file,
+      snapshot.map((candidate) => candidate.id)
+    );
+    replaceAssets([...snapshot, asset]);
+    return asset.id;
+  }, [replaceAssets]);
 
   const loadSearchAssets = useCallback(async (): Promise<void> => {
     if (searchLoad.current) return searchLoad.current;
@@ -381,7 +406,12 @@ export default function App() {
   };
 
   const metadataChange = (key: string, value: string) => {
+    if (key === "theme" && !valid) return;
     applySource(rewriteMetadata(source, document, key, value));
+  };
+
+  const themeChange = (nextTheme: DocumentTheme) => {
+    if (valid) metadataChange("theme", nextTheme);
   };
 
   useEffect(() => {
@@ -520,15 +550,21 @@ export default function App() {
         <Suspense fallback={<ViewLoader />}>
           {activeView === "document" && (
             <DocumentEditor
-              key={"document-" + document.children.length}
               document={document}
               documentFingerprint={source}
               assets={assets}
               assetUrls={assetUrls}
               assetVersion={assetVersion}
               searchAssetsLoading={searchAssetsLoading}
+              theme={theme}
+              accent={accent}
+              readingMode={readingMode}
+              sourceValid={valid}
               onSearchDemand={loadSearchAssets}
               onLoadAsset={loadAsset}
+              onAddImageAsset={addImageAsset}
+              onThemeChange={themeChange}
+              onReadingModeChange={setReadingMode}
               onChange={applySource}
             />
           )}

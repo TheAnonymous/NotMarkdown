@@ -67,6 +67,7 @@ export type {
   DiagnosticSeverity,
   DocumentMetadata,
   DocumentNode,
+  DocumentTheme,
   FigureNode,
   InlineNode,
   ListItemNode,

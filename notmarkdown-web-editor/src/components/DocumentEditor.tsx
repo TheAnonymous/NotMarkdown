@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EditorState, TextSelection } from "prosemirror-state";
+import type { SelectionBookmark } from "prosemirror-state";
 import { EditorView } from "prosemirror-view";
 import type { Node as ProseMirrorNode } from "prosemirror-model";
 import { history, redo, undo } from "prosemirror-history";
@@ -25,6 +26,12 @@ import {
 } from "../core/editor-model";
 import { VisualRenderBudget } from "../core/visual-renderers";
 import { visualNodeView } from "./visual-node-views";
+import {
+  DOCUMENT_THEME_OPTIONS,
+  type DocumentAccent,
+  type DocumentTheme
+} from "../core/document-appearance";
+import { validateImageFile } from "../core/image-authoring";
 
 interface Props {
   document: DocumentNode;
@@ -33,8 +40,15 @@ interface Props {
   assetUrls: ReadonlyMap<string, string>;
   assetVersion: number;
   searchAssetsLoading?: boolean;
+  theme?: DocumentTheme;
+  accent?: DocumentAccent;
+  readingMode?: boolean;
+  sourceValid?: boolean;
   onSearchDemand?: () => Promise<void>;
   onLoadAsset?: (id: string) => Promise<Uint8Array>;
+  onAddImageAsset?: (file: File) => Promise<string>;
+  onThemeChange?: (theme: DocumentTheme) => void;
+  onReadingModeChange?: (enabled: boolean) => void;
   onChange: (source: string) => void;
 }
 
@@ -45,16 +59,38 @@ export function DocumentEditor({
   assetUrls,
   assetVersion,
   searchAssetsLoading = false,
+  theme = "standard",
+  accent = "violet",
+  readingMode = false,
+  sourceValid = true,
   onSearchDemand,
   onLoadAsset,
+  onAddImageAsset,
+  onThemeChange,
+  onReadingModeChange,
   onChange
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<EditorView | null>(null);
+  const imageButton = useRef<HTMLButtonElement>(null);
+  const imageDialog = useRef<HTMLDialogElement>(null);
+  const imageUpload = useRef<HTMLInputElement>(null);
+  const imageSelection = useRef<SelectionBookmark | null>(null);
+  const editorSelection = useRef<SelectionBookmark | null>(null);
   const searchCache = useRef(new IncrementalSearchCache());
   const [query, setQuery] = useState("");
+  const [imageDialogOpen, setImageDialogOpen] = useState(false);
+  const [selectedImageId, setSelectedImageId] = useState<string>();
+  const [imageFile, setImageFile] = useState<File>();
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string>();
+  const [imageAlt, setImageAlt] = useState("");
+  const [imageDecorative, setImageDecorative] = useState(false);
+  const [imageError, setImageError] = useState<string>();
+  const [imageInserting, setImageInserting] = useState(false);
   const callback = useRef(onChange);
   callback.current = onChange;
+  const documentSnapshot = useRef(document);
+  documentSnapshot.current = document;
   const outlineEntries = useMemo(() => outline(document), [document]);
   const searchResult = useMemo(() => {
     if (!query.trim()) return undefined;
@@ -75,14 +111,52 @@ export function DocumentEditor({
     };
   }, [document, documentFingerprint, assets, query]);
   const searchHits = searchResult?.hits ?? [];
+  const imageAssets = useMemo(
+    () => assets.filter((asset) => asset.kind === "image"),
+    [assets]
+  );
 
   useEffect(() => {
     if (query.trim()) void onSearchDemand?.();
   }, [query, onSearchDemand]);
 
   useEffect(() => {
+    if (!imageFile) {
+      setImagePreviewUrl(undefined);
+      return;
+    }
+    const url = URL.createObjectURL(imageFile);
+    setImagePreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [imageFile]);
+
+  useEffect(() => {
+    if (!imageDialogOpen) return;
+    const dialog = imageDialog.current;
+    if (!dialog) return;
+    if (!dialog.open) {
+      try {
+        dialog.showModal();
+      } catch {
+        // jsdom and older engines expose <dialog> without the modal methods.
+        dialog.setAttribute("open", "");
+      }
+    }
+    const firstControl = dialog.querySelector<HTMLElement>(
+      'input:not(:disabled), button:not(:disabled), [tabindex="0"]'
+    );
+    firstControl?.focus();
+    return () => {
+      if (dialog.open) {
+        if (typeof dialog.close === "function") dialog.close();
+        else dialog.removeAttribute("open");
+      }
+    };
+  }, [imageDialogOpen]);
+
+  useEffect(() => {
     if (!host.current) return;
-    const state = EditorState.create({
+    let state = EditorState.create({
       doc: documentToEditorNode(document),
       plugins: [
         history(),
@@ -94,6 +168,15 @@ export function DocumentEditor({
         keymap(baseKeymap)
       ]
     });
+    if (editorSelection.current) {
+      try {
+        state = state.apply(
+          state.tr.setSelection(editorSelection.current.resolve(state.doc))
+        );
+      } catch {
+        editorSelection.current = null;
+      }
+    }
     const visualBudget = new VisualRenderBudget();
     const view = new EditorView(host.current, {
       state,
@@ -111,23 +194,127 @@ export function DocumentEditor({
       dispatchTransaction(transaction) {
         const next = view.state.apply(transaction);
         view.updateState(next);
+        editorSelection.current = next.selection.getBookmark();
         if (transaction.docChanged) {
-          callback.current(editorNodeToSource(next.doc, document));
+          callback.current(editorNodeToSource(next.doc, documentSnapshot.current));
         }
       }
     });
     editor.current = view;
     return () => {
+      editorSelection.current = view.state.selection.getBookmark();
       view.destroy();
       editor.current = null;
     };
-  }, [assetVersion]);
+  }, [assetVersion, assetUrls]);
 
   const command = (action: (view: EditorView) => boolean) => {
     const view = editor.current;
     if (view) {
       action(view);
       view.focus();
+    }
+  };
+
+  const openImageDialog = () => {
+    const view = editor.current;
+    if (!sourceValid || !view) return;
+    imageSelection.current = view.state.selection.getBookmark();
+    editorSelection.current = imageSelection.current;
+    setSelectedImageId(undefined);
+    setImageFile(undefined);
+    setImageAlt("");
+    setImageDecorative(false);
+    setImageError(undefined);
+    setImageInserting(false);
+    setImageDialogOpen(true);
+  };
+
+  const closeImageDialog = (force = false) => {
+    if (imageInserting && !force) return;
+    setImageDialogOpen(false);
+    setSelectedImageId(undefined);
+    setImageFile(undefined);
+    setImageAlt("");
+    setImageDecorative(false);
+    setImageError(undefined);
+    window.setTimeout(() => imageButton.current?.focus(), 0);
+  };
+
+  const chooseExistingImage = (id: string) => {
+    setSelectedImageId(id);
+    setImageFile(undefined);
+    setImageError(undefined);
+    if (imageUpload.current) imageUpload.current.value = "";
+  };
+
+  const chooseImageFile = (file: File | undefined) => {
+    if (!file) return;
+    try {
+      validateImageFile(file);
+      setImageFile(file);
+      setSelectedImageId(undefined);
+      setImageError(undefined);
+    } catch (error) {
+      setImageFile(undefined);
+      setSelectedImageId(undefined);
+      setImageError(error instanceof Error ? error.message : String(error));
+      if (imageUpload.current) imageUpload.current.value = "";
+    }
+  };
+
+  const insertImage = async () => {
+    const alt = imageAlt.trim();
+    if (
+      imageInserting ||
+      !sourceValid ||
+      (!selectedImageId && !imageFile) ||
+      (!imageDecorative && !alt)
+    ) {
+      return;
+    }
+    setImageInserting(true);
+    setImageError(undefined);
+    try {
+      let assetId = selectedImageId;
+      if (imageFile) {
+        if (!onAddImageAsset) {
+          throw new Error("Image upload is not available.");
+        }
+        assetId = await onAddImageAsset(imageFile);
+      } else if (assetId) {
+        const asset = imageAssets.find((candidate) => candidate.id === assetId);
+        if (!asset) throw new Error("The selected image is no longer available.");
+        if (!asset.data) {
+          if (!onLoadAsset) throw new Error("The selected image could not be loaded.");
+          await onLoadAsset(assetId);
+        }
+      }
+      const view = editor.current;
+      if (!view || !assetId) throw new Error("The image could not be inserted.");
+      let selection = view.state.selection;
+      try {
+        selection = imageSelection.current?.resolve(view.state.doc) ?? selection;
+      } catch {
+        // Keep the current safe selection if the document changed unexpectedly.
+      }
+      const node = editorSchema.nodes.figure.create({
+        assetId,
+        alt: imageDecorative ? "" : alt,
+        layout: "normal",
+        decorative: imageDecorative
+      });
+      view.dispatch(
+        view.state.tr
+          .setSelection(selection)
+          .replaceSelectionWith(node)
+          .scrollIntoView()
+      );
+      closeImageDialog(true);
+    } catch (error) {
+      setImageError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setImageInserting(false);
     }
   };
 
@@ -149,8 +336,13 @@ export function DocumentEditor({
   };
 
   return (
-    <div className="document-workspace">
-      <div className="format-toolbar" aria-label="Formatting">
+    <div
+      className="document-workspace"
+      data-theme={theme}
+      data-accent={accent}
+      data-reading-mode={readingMode ? "dyslexia" : "default"}
+    >
+      <div className="format-toolbar" role="toolbar" aria-label="Formatting">
         <button
           title="Paragraph"
           onClick={() =>
@@ -247,6 +439,19 @@ export function DocumentEditor({
         </button>
         <span className="toolbar-rule" />
         <button
+          ref={imageButton}
+          type="button"
+          title={
+            sourceValid
+              ? "Insert image"
+              : "Resolve source diagnostics before inserting an image"
+          }
+          disabled={!sourceValid}
+          onClick={openImageDialog}
+        >
+          Image
+        </button>
+        <button
           title="Insert Mermaid diagram"
           onClick={() => command((view) => {
             const node = editorSchema.nodes.static_visual.create({
@@ -280,6 +485,37 @@ export function DocumentEditor({
           Chart
         </button>
         <span className="toolbar-spacer" />
+        <label className="toolbar-theme-control">
+          <span>Theme</span>
+          <select
+            value={theme}
+            disabled={!sourceValid}
+            title={
+              sourceValid
+                ? "Document theme"
+                : "Resolve source diagnostics before changing the document theme"
+            }
+            onChange={(event) =>
+              onThemeChange?.(event.target.value as DocumentTheme)
+            }
+          >
+            {DOCUMENT_THEME_OPTIONS.map(({ value, label }) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          className="reading-mode-toggle"
+          type="button"
+          aria-pressed={readingMode}
+          title="Personal reading aid; does not change the document"
+          onClick={() => onReadingModeChange?.(!readingMode)}
+        >
+          Dyslexia-friendly
+        </button>
+        <span className="toolbar-rule" />
         <button title="Undo" onClick={() => command((view) => undo(view.state, view.dispatch))}>
           ↶
         </button>
@@ -287,6 +523,174 @@ export function DocumentEditor({
           ↷
         </button>
       </div>
+      {imageDialogOpen && (
+        <dialog
+          ref={imageDialog}
+          className="image-dialog"
+          aria-labelledby="image-dialog-title"
+          aria-modal="true"
+          onCancel={(event) => {
+            event.preventDefault();
+            closeImageDialog();
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              closeImageDialog();
+            }
+          }}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) closeImageDialog();
+          }}
+        >
+          <form
+            method="dialog"
+            className="image-dialog-panel"
+            aria-busy={imageInserting}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void insertImage();
+            }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className="image-dialog-header">
+              <div>
+                <span className="eyebrow">Document image</span>
+                <h2 id="image-dialog-title">Insert image</h2>
+              </div>
+              <button
+                type="button"
+                className="image-dialog-close"
+                aria-label="Close image dialog"
+                disabled={imageInserting}
+                onClick={() => closeImageDialog()}
+              >
+                ×
+              </button>
+            </header>
+
+            <div className="image-dialog-body">
+              <fieldset className="image-source-section">
+                <legend>Existing images</legend>
+                {imageAssets.length ? (
+                  <div className="image-asset-options">
+                    {imageAssets.map((asset) => {
+                      const preview = assetUrls.get(asset.id);
+                      return (
+                        <label
+                          className={
+                            "image-asset-option" +
+                            (selectedImageId === asset.id ? " selected" : "")
+                          }
+                          key={asset.id}
+                        >
+                          <input
+                            type="radio"
+                            name="image-source"
+                            value={asset.id}
+                            checked={selectedImageId === asset.id}
+                            disabled={imageInserting}
+                            onChange={() => chooseExistingImage(asset.id)}
+                          />
+                          {preview ? (
+                            <img src={preview} alt={`Preview of asset:${asset.id}`} />
+                          ) : (
+                            <span className="image-preview-placeholder" aria-hidden="true">
+                              ▧
+                            </span>
+                          )}
+                          <span>
+                            <strong>asset:{asset.id}</strong>
+                            <small>{asset.fileName}</small>
+                            {!preview && <small>Preview loads on insert</small>}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="image-dialog-empty">No image assets in this package.</p>
+                )}
+              </fieldset>
+
+              <fieldset className="image-source-section">
+                <legend>Upload image</legend>
+                <label className="image-upload-control">
+                  <span>Choose a local image</span>
+                  <input
+                    ref={imageUpload}
+                    type="file"
+                    accept="image/*"
+                    disabled={imageInserting}
+                    onChange={(event) => chooseImageFile(event.target.files?.[0])}
+                  />
+                </label>
+                {imageFile && imagePreviewUrl && (
+                  <div className="image-upload-preview">
+                    <img src={imagePreviewUrl} alt={`Preview of ${imageFile.name}`} />
+                    <span>{imageFile.name}</span>
+                  </div>
+                )}
+              </fieldset>
+
+              <fieldset className="image-description-section">
+                <legend>Image description</legend>
+                <label>
+                  <span>Alt text</span>
+                  <input
+                    type="text"
+                    value={imageAlt}
+                    disabled={imageDecorative || imageInserting}
+                    aria-describedby="image-alt-help"
+                    onChange={(event) => setImageAlt(event.target.value)}
+                  />
+                </label>
+                <label className="decorative-option">
+                  <input
+                    type="checkbox"
+                    checked={imageDecorative}
+                    disabled={imageInserting}
+                    onChange={(event) => setImageDecorative(event.target.checked)}
+                  />
+                  <span>Decorative</span>
+                </label>
+                <small id="image-alt-help">
+                  Describe the image’s purpose, or explicitly mark it as decorative.
+                </small>
+              </fieldset>
+
+              {imageError && (
+                <div className="image-dialog-error" role="alert">
+                  {imageError}
+                </div>
+              )}
+            </div>
+
+            <footer className="image-dialog-footer">
+              <button
+                type="button"
+                className="quiet-button"
+                disabled={imageInserting}
+                onClick={() => closeImageDialog()}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="primary-button"
+                disabled={
+                  !sourceValid ||
+                  imageInserting ||
+                  (!selectedImageId && !imageFile) ||
+                  (!imageDecorative && !imageAlt.trim())
+                }
+              >
+                {imageInserting ? "Inserting…" : "Insert"}
+              </button>
+            </footer>
+          </form>
+        </dialog>
+      )}
       <div className="document-main">
         <aside className="document-navigation" aria-label="Document navigation">
           <label htmlFor="document-search">Search document and embedded text</label>
@@ -445,9 +849,11 @@ function mediaView(
     dom.append(placeholder);
   }
 
-  const caption = document.createElement("figcaption");
-  caption.textContent =
-    node.attrs.alt || node.attrs.label || "asset:" + node.attrs.assetId;
-  dom.append(caption);
+  if (!(kind === "image" && node.attrs.decorative)) {
+    const caption = document.createElement("figcaption");
+    caption.textContent =
+      node.attrs.alt || node.attrs.label || "asset:" + node.attrs.assetId;
+    dom.append(caption);
+  }
   return { dom };
 }

@@ -23,6 +23,42 @@ test("the example parser outputs conform to the CDM JSON Schema", async () => {
   }
 });
 
+test("parser output for every document theme conforms to the CDM JSON Schema", async () => {
+  const schema = JSON.parse(
+    await readFile("../notmarkdown-cdm-0.1.schema.json", "utf8")
+  );
+  const validate = new Ajv2020({ allErrors: true, strict: true }).compile(schema);
+  const themes = [
+    "standard",
+    "paper",
+    "technical",
+    "minimal",
+    "sepia",
+    "midnight",
+    "high-contrast"
+  ];
+
+  for (const theme of themes) {
+    const result = parse(
+      [
+        "@notmarkdown 0.1",
+        "",
+        "@document {",
+        `  theme: ${theme}`,
+        "}",
+        "",
+        "# Themed document"
+      ].join("\n")
+    );
+    assert.ok(result.document, theme);
+    assert.equal(
+      validate(result.document),
+      true,
+      theme + ": " + JSON.stringify(validate.errors, null, 2)
+    );
+  }
+});
+
 test("generated manifests conform to the manifest JSON Schema", async () => {
   const schema = JSON.parse(
     await readFile("../notmarkdown-manifest-0.1.schema.json", "utf8")

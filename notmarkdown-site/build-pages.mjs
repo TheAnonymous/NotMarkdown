@@ -42,6 +42,11 @@ for (const fileName of [
   await cp(resolve(repositoryRoot, fileName), resolve(outputDirectory, "docs", fileName));
 }
 await cp(
+  resolve(repositoryRoot, "LICENSES"),
+  resolve(outputDirectory, "docs/LICENSES"),
+  { recursive: true }
+);
+await cp(
   resolve(repositoryRoot, "NotMarkdown-visuals-0.1.nmdoc"),
   resolve(outputDirectory, "downloads", "NotMarkdown-visuals-0.1.nmdoc")
 );

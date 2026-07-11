@@ -91,7 +91,17 @@
       "properties": {
         "title": { "type": "string" },
         "language": { "$ref": "#/$defs/lang" },
-        "theme": { "enum": ["standard", "paper", "technical"] },
+        "theme": {
+          "enum": [
+            "standard",
+            "paper",
+            "technical",
+            "minimal",
+            "sepia",
+            "midnight",
+            "high-contrast"
+          ]
+        },
         "accent": { "enum": ["blue", "green", "orange", "violet", "neutral"] },
         "density": { "enum": ["compact", "comfortable"] }
       },

@@ -11,8 +11,28 @@ session synchronized across three views:
 The editor runs locally in the browser. Opening, editing, previewing, packing,
 and unpacking do not require a server API.
 
+## Document appearance and personal reading mode
+
+Theme and accent are document presentation choices. Selecting one of the seven
+document-bound presets—Standard, Paper, Technical, Minimal, Sepia, Midnight, or
+High Contrast—rewrites the existing `@document` metadata, so those choices
+remain visible in Source, travel in `.nmt` and `.nmdoc` files, and stay in sync
+with the Package view.
+
+**Dyslexia-friendly** is a separate, personal reading preference. It affects
+only the Document view, is stored locally under
+`notmarkdown.studio.reading-mode`, and never changes source, document metadata,
+or package bytes. The preference keeps the document's semantic accent and uses
+the bundled OpenDyslexic Regular and Bold fonts offline; Source, Package, and
+the surrounding Studio interface retain their normal presentation. It is an
+optional reading aid rather than a claim that one presentation works for every
+reader.
+
 ## Implemented in 0.7
 
+- an accessible Document-view image picker for existing package images and
+  eager local uploads, with required alt text or an explicit decorative mode,
+  automatic collision-safe asset IDs, and immediate Source/Package sync;
 - lossless, exact-lowercase `mermaid`, `vega-lite`, and `vegalite` source
   fences with atomic Document-view previews, direct source editing, and toolbar
   insertion;
@@ -29,7 +49,11 @@ and unpacking do not require a server API.
   load/extract/replace controls;
 - pre-load authoring limits and bounded UTF-8/XML validation for draw.io source
   and SVG representations;
-- a restrictive application Content Security Policy as defense in depth.
+- a restrictive application Content Security Policy as defense in depth;
+- seven document-bound theme presets plus semantic accent colors that remain
+  synchronized with `@document` metadata;
+- an optional Dyslexia-friendly reading mode with bundled OpenDyslexic fonts,
+  a glare-reduced canvas, wider spacing, and a bounded reading width.
 
 Append `?embed=1` when Studio is hosted inside the NotMarkdown landing page.
 Embed mode retains the real editor and file workflow while adapting the shell
