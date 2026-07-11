@@ -52,7 +52,7 @@ export async function renderMermaidSvg(source: string): Promise<string> {
       flowchart: { htmlLabels: false }
     });
     const rendered = await mermaid.render(`notmarkdown-visual-${++mermaidSequence}`, source);
-    return sanitizeSvg(rendered.svg);
+    return sanitizeMermaidSvg(rendered.svg);
   });
 }
 
@@ -79,11 +79,105 @@ export async function renderVegaLiteSvg(source: string): Promise<string> {
 }
 
 export function sanitizeSvg(svg: string): string {
-  return DOMPurify.sanitize(svg, {
+  const sanitized = DOMPurify.sanitize(svg, {
     USE_PROFILES: { svg: true, svgFilters: true },
     FORBID_TAGS: ["script", "style", "foreignObject", "iframe", "object", "embed", "a"],
     FORBID_ATTR: ["style", "href", "xlink:href", "onload", "onclick"]
   });
+  return removeExternalSvgReferences(sanitized);
+}
+
+export function sanitizeMermaidSvg(svg: string): string {
+  const sanitized = sanitizeSvg(svg);
+  const parsed = new DOMParser().parseFromString(sanitized, "image/svg+xml");
+  const root = parsed.documentElement;
+  if (root.localName !== "svg" || parsed.querySelector("parsererror")) {
+    return sanitized;
+  }
+
+  setSvgAttributes(root, "svg", {
+    "font-family": "trebuchet ms, verdana, arial, sans-serif",
+    "font-size": "16px"
+  });
+  setSvgAttributes(root, "text, tspan", { fill: "#000000" });
+  setSvgAttributes(root, ".label text", { "text-anchor": "middle" });
+  setSvgAttributes(
+    root,
+    ".node rect, .node circle, .node ellipse, .node polygon, .node path",
+    { fill: "#eee", stroke: "#999", "stroke-width": "1px" }
+  );
+  setSvgAttributes(root, ".flowchart-link", {
+    fill: "none",
+    stroke: "#666",
+    "stroke-width": "1px"
+  });
+  setSvgAttributes(root, ".edge-pattern-dashed", {
+    "stroke-dasharray": "3"
+  });
+  setSvgAttributes(root, ".edge-pattern-dotted", {
+    "stroke-dasharray": "2"
+  });
+  setSvgAttributes(root, "marker.marker, marker.marker path, marker.marker polygon, marker.marker circle", {
+    fill: "#666",
+    stroke: "#666"
+  });
+  setSvgAttributes(root, ".edgeLabel .background", {
+    fill: "#ffffff",
+    "fill-opacity": "0.8"
+  });
+  setSvgAttributes(root, ".cluster rect", {
+    fill: "#f5f5f5",
+    stroke: "#707070",
+    "stroke-width": "1px"
+  });
+
+  return sanitizeSvg(new XMLSerializer().serializeToString(root));
+}
+
+function setSvgAttributes(
+  root: Element,
+  selector: string,
+  attributes: Record<string, string>
+): void {
+  const elements = root.matches(selector)
+    ? [root, ...root.querySelectorAll(selector)]
+    : [...root.querySelectorAll(selector)];
+  for (const element of elements) {
+    for (const [name, value] of Object.entries(attributes)) {
+      element.setAttribute(name, value);
+    }
+  }
+}
+
+const SVG_RESOURCE_ATTRIBUTES = [
+  "fill",
+  "stroke",
+  "filter",
+  "mask",
+  "clip-path",
+  "marker-start",
+  "marker-mid",
+  "marker-end"
+] as const;
+
+function removeExternalSvgReferences(svg: string): string {
+  const parsed = new DOMParser().parseFromString(svg, "image/svg+xml");
+  const root = parsed.documentElement;
+  if (root.localName !== "svg" || parsed.querySelector("parsererror")) return "";
+  for (const element of [root, ...root.querySelectorAll("*")]) {
+    for (const name of SVG_RESOURCE_ATTRIBUTES) {
+      const value = element.getAttribute(name);
+      if (value && hasExternalCssUrl(value)) element.removeAttribute(name);
+    }
+  }
+  return new XMLSerializer().serializeToString(root);
+}
+
+function hasExternalCssUrl(value: string): boolean {
+  for (const match of value.matchAll(/url\(\s*(['"]?)(.*?)\1\s*\)/gi)) {
+    if (!/^#[A-Za-z_][A-Za-z0-9_.:-]*$/.test(match[2]!.trim())) return true;
+  }
+  return false;
 }
 
 function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promise<T> {
