@@ -435,18 +435,243 @@ fn compatibility_import_export_is_deterministic_and_reports_asset_fallbacks() {
     assert!(!html_text.contains("<script"));
     assert!(!html_text.contains("src=\"http"));
     assert!(!html_text.contains("url(http"));
+    assert!(html_text.contains("data:image/png;base64,"));
+    assert!(html_text.contains("alt=\"A local image\""));
     let report: Value =
         serde_json::from_slice(&fs::read(&report).expect("report")).expect("report JSON");
     assert_eq!(report["reportVersion"], "0.1");
-    assert_eq!(report["lossless"], false);
-    assert!(
-        report["items"]
-            .as_array()
-            .expect("items")
-            .iter()
-            .any(|item| item["code"] == "NMD-E100")
-    );
+    assert_eq!(report["lossless"], true);
+    assert!(report["items"].as_array().expect("items").is_empty());
     fs::remove_dir_all(directory).expect("remove compatibility directory");
+}
+
+#[test]
+fn html_export_embeds_allowlisted_verified_media_without_remote_requests() {
+    let directory = temporary_directory("html-embedded-media");
+    let source = directory.join("media.nmt");
+    fs::write(
+        &source,
+        "@notmarkdown 0.1\n\n![PNG & safe](asset:png)\n\n![JPEG](asset:jpeg)\n\n![WebP](asset:webp)\n\n![AVIF](asset:avif)\n\n![SVG](asset:svg)\n\n![Unsafe SVG](asset:evil)\n\n!audio[Audio](asset:audio)\n\n!video[Video](asset:video)\n",
+    )
+    .expect("write media source");
+    let assets = [
+        ("png", "image.png", b"\x89PNG\r\n\x1a\nfixture".as_slice()),
+        ("jpeg", "image.jpg", &[0xff, 0xd8, 0xff, 0xe0, 0x00, 0x01]),
+        ("webp", "image.webp", b"RIFF\x04\0\0\0WEBPVP8 ".as_slice()),
+        (
+            "avif",
+            "image.avif",
+            b"\0\0\0\x18ftypavif\0\0\0\0avif".as_slice(),
+        ),
+        (
+            "svg",
+            "image.svg",
+            br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#fff"/></svg>"##.as_slice(),
+        ),
+        (
+            "evil",
+            "evil.svg",
+            br#"<svg xmlns="http://www.w3.org/2000/svg"><script src="https://example.test/evil.js"></script></svg>"#.as_slice(),
+        ),
+        ("audio", "audio.mp3", b"ID3fixture".as_slice()),
+        (
+            "video",
+            "video.webm",
+            b"\x1a\x45\xdf\xa3fixture".as_slice(),
+        ),
+    ];
+    for (_, name, bytes) in assets {
+        fs::write(directory.join(name), bytes).expect("write media asset");
+    }
+    let package = directory.join("media.nmdoc");
+    let mut pack = Command::new(binary());
+    pack.arg("pack").arg(&source).arg("--output").arg(&package);
+    for (id, name, _) in assets {
+        pack.arg("--asset")
+            .arg(format!("{id}={}", directory.join(name).display()));
+    }
+    let packed = pack.output().expect("pack media document");
+    assert!(
+        packed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&packed.stderr)
+    );
+
+    let html = directory.join("media.html");
+    let loss = directory.join("media-loss.json");
+    let exported = Command::new(binary())
+        .arg("export")
+        .arg(&package)
+        .args(["--to", "html", "--output"])
+        .arg(&html)
+        .arg("--loss-report")
+        .arg(&loss)
+        .output()
+        .expect("export embedded media HTML");
+    assert!(
+        exported.status.success(),
+        "{}",
+        String::from_utf8_lossy(&exported.stderr)
+    );
+    let html = fs::read_to_string(&html).expect("embedded media HTML");
+    for media_type in [
+        "image/png",
+        "image/jpeg",
+        "image/webp",
+        "image/avif",
+        "image/svg+xml",
+        "audio/mpeg",
+        "video/webm",
+    ] {
+        assert!(
+            html.contains(&format!("data:{media_type};base64,")),
+            "missing {media_type} data URL"
+        );
+    }
+    assert_eq!(html.matches("data:image/svg+xml;base64,").count(), 1);
+    assert!(html.contains("alt=\"PNG &amp; safe\""));
+    assert!(html.contains("<audio controls preload=metadata"));
+    assert!(html.contains("<video controls preload=metadata"));
+    assert!(!html.contains("autoplay"));
+    assert!(!html.contains("<script"));
+    assert!(!html.contains("https://example.test"));
+    assert!(html.contains("script-src 'none'"));
+    assert!(html.contains("connect-src 'none'"));
+    assert!(html.contains("asset:evil"));
+
+    let loss: Value = serde_json::from_slice(&fs::read(&loss).expect("media loss report"))
+        .expect("media loss JSON");
+    assert!(
+        loss["items"]
+            .as_array()
+            .expect("media loss items")
+            .iter()
+            .any(|item| item["code"] == "NMD-E103"
+                && item["message"]
+                    .as_str()
+                    .is_some_and(|message| message.contains("evil")))
+    );
+    fs::remove_dir_all(directory).expect("remove media export directory");
+}
+
+#[test]
+fn recursive_markdown_migration_preserves_tree_assets_and_embeds_report() {
+    let directory = temporary_directory("recursive-import");
+    let input = directory.join("markdown");
+    let guide = input.join("guide");
+    fs::create_dir_all(input.join("assets")).expect("create root assets");
+    fs::create_dir_all(guide.join("images")).expect("create nested assets");
+    fs::write(
+        input.join("README.md"),
+        "# Home\n\n![Logo](assets/logo.png)\n",
+    )
+    .expect("write root Markdown");
+    fs::write(
+        guide.join("setup.markdown"),
+        "# Setup\n\n![Nested](images/photo.webp)\n",
+    )
+    .expect("write nested Markdown");
+    fs::write(input.join("assets/logo.png"), b"\x89PNG\r\n\x1a\nlogo").expect("write root image");
+    fs::write(guide.join("images/photo.webp"), b"RIFFfixtureWEBP").expect("write nested image");
+
+    let first = directory.join("converted-first");
+    let second = directory.join("converted-second");
+    for output in [&first, &second] {
+        let imported = Command::new(binary())
+            .arg("import")
+            .arg(&input)
+            .args([
+                "--recursive",
+                "--dialect",
+                "github",
+                "--to",
+                "nmdoc",
+                "--output",
+            ])
+            .arg(output)
+            .output()
+            .expect("import Markdown tree");
+        assert!(
+            imported.status.success(),
+            "{}",
+            String::from_utf8_lossy(&imported.stderr)
+        );
+        assert!(output.join("README.nmdoc").is_file());
+        assert!(output.join("guide/setup.nmdoc").is_file());
+        let report: Value = serde_json::from_slice(
+            &fs::read(output.join("migration-loss-report.json")).expect("migration report"),
+        )
+        .expect("migration report JSON");
+        assert_eq!(report["completed"], true);
+        assert_eq!(report["filesDiscovered"], 2);
+        assert_eq!(report["filesSucceeded"], 2);
+        assert_eq!(report["filesFailed"], 0);
+    }
+    assert_eq!(
+        fs::read(first.join("README.nmdoc")).expect("first root package"),
+        fs::read(second.join("README.nmdoc")).expect("second root package")
+    );
+    assert_eq!(
+        fs::read(first.join("guide/setup.nmdoc")).expect("first nested package"),
+        fs::read(second.join("guide/setup.nmdoc")).expect("second nested package")
+    );
+
+    let inspection = Command::new(binary())
+        .args(["inspect", "--compact"])
+        .arg(first.join("guide/setup.nmdoc"))
+        .output()
+        .expect("inspect migrated nested package");
+    assert!(inspection.status.success());
+    let inspection: Value = serde_json::from_slice(&inspection.stdout).expect("inspection JSON");
+    assert_eq!(inspection["manifest"]["assets"]["photo"]["kind"], "image");
+    fs::remove_dir_all(directory).expect("remove recursive migration directory");
+}
+
+#[test]
+fn recursive_markdown_migration_is_atomic_and_reports_every_failure() {
+    let directory = temporary_directory("recursive-import-errors");
+    let input = directory.join("markdown");
+    fs::create_dir(&input).expect("create Markdown input");
+    fs::write(input.join("good.md"), "# Good\n").expect("write valid Markdown");
+    fs::write(
+        input.join("bad.md"),
+        "| A | B |\n|---|---|\n| one | two |\n",
+    )
+    .expect("write unsupported Markdown");
+    let output = directory.join("converted");
+    let imported = Command::new(binary())
+        .arg("import")
+        .arg(&input)
+        .args([
+            "--recursive",
+            "--dialect",
+            "github",
+            "--to",
+            "nmdoc",
+            "--output",
+        ])
+        .arg(&output)
+        .output()
+        .expect("reject Markdown tree");
+    assert_eq!(imported.status.code(), Some(1));
+    assert!(!output.exists(), "failed tree must not be committed");
+    let loss_path = output.with_extension("loss.json");
+    let report: Value =
+        serde_json::from_slice(&fs::read(&loss_path).expect("recursive failure report"))
+            .expect("recursive failure JSON");
+    assert_eq!(report["completed"], false);
+    assert_eq!(report["filesDiscovered"], 2);
+    assert_eq!(report["filesSucceeded"], 1);
+    assert_eq!(report["filesFailed"], 1);
+    assert!(
+        report["reports"]
+            .as_array()
+            .expect("per-file reports")
+            .iter()
+            .flat_map(|report| report["items"].as_array().expect("items"))
+            .any(|item| item["code"] == "NMD-I051")
+    );
+    fs::remove_dir_all(directory).expect("remove failed migration directory");
 }
 
 #[test]
@@ -454,16 +679,56 @@ fn compatibility_conversion_never_overwrites_and_rejects_invalid_input() {
     let directory = temporary_directory("compatibility-errors");
     let invalid_utf8 = directory.join("invalid.md");
     let invalid_output = directory.join("invalid.nmt");
+    let invalid_loss = directory.join("invalid-loss.json");
     fs::write(&invalid_utf8, [0xff, 0xfe]).expect("write invalid UTF-8");
     let invalid = Command::new(binary())
         .arg("import")
         .arg(&invalid_utf8)
         .args(["--dialect", "commonmark", "--to", "nmt", "--output"])
         .arg(&invalid_output)
+        .arg("--loss-report")
+        .arg(&invalid_loss)
         .output()
         .expect("reject invalid UTF-8");
     assert_eq!(invalid.status.code(), Some(1));
     assert!(!invalid_output.exists());
+    let invalid_report: Value =
+        serde_json::from_slice(&fs::read(&invalid_loss).expect("invalid UTF-8 loss report"))
+            .expect("invalid UTF-8 loss JSON");
+    assert!(
+        invalid_report["items"]
+            .as_array()
+            .expect("invalid UTF-8 items")
+            .iter()
+            .any(|item| item["severity"] == "error" && item["code"] == "NMD-I000")
+    );
+
+    let invalid_nmt = directory.join("invalid.nmt");
+    let invalid_html = directory.join("invalid.html");
+    let invalid_export_loss = directory.join("invalid-export-loss.json");
+    fs::write(&invalid_nmt, "# Missing header\n").expect("write invalid NMT");
+    let invalid_export = Command::new(binary())
+        .arg("export")
+        .arg(&invalid_nmt)
+        .args(["--to", "html", "--output"])
+        .arg(&invalid_html)
+        .arg("--loss-report")
+        .arg(&invalid_export_loss)
+        .output()
+        .expect("reject invalid export input");
+    assert_eq!(invalid_export.status.code(), Some(1));
+    assert!(!invalid_html.exists());
+    let invalid_export_report: Value = serde_json::from_slice(
+        &fs::read(&invalid_export_loss).expect("invalid export loss report"),
+    )
+    .expect("invalid export loss JSON");
+    assert!(
+        invalid_export_report["items"]
+            .as_array()
+            .expect("invalid export items")
+            .iter()
+            .any(|item| item["severity"] == "error" && item["code"] == "NMD-E000")
+    );
 
     let unsupported = directory.join("unsupported.md");
     let unsupported_output = directory.join("unsupported.nmt");

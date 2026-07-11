@@ -1,7 +1,10 @@
-.gitignore
+.github/**
+.vscode/**
+node_modules/**
 src/**
 test/**
+PUBLISHING.md
 tsconfig.json
-*.vsix
+*.tsbuildinfo
 **/*.map
-node_modules/**
+*.vsix

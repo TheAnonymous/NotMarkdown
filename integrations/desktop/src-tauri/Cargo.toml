@@ -1,0 +1,14 @@
+[package]
+name = "notmarkdown-desktop"
+version = "0.1.0"
+description = "Native shell scaffold for NotMarkdown Studio"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[build-dependencies]
+tauri-build = "2"
+
+[dependencies]
+tauri = "2"
+

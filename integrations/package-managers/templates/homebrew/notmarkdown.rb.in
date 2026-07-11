@@ -1,0 +1,41 @@
+class Notmarkdown < Formula
+  desc "CLI, terminal editor, and language server for NotMarkdown"
+  homepage "https://theanonymous.github.io/NotMarkdown/"
+  version "@VERSION@"
+  license "MIT"
+
+  on_macos do
+    if Hardware::CPU.arm?
+      url "@URL_MACOS_ARM64@"
+      sha256 "@SHA256_MACOS_ARM64@"
+    else
+      url "@URL_MACOS_X64@"
+      sha256 "@SHA256_MACOS_X64@"
+    end
+  end
+
+  on_linux do
+    if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
+      url "@URL_LINUX_ARM64@"
+      sha256 "@SHA256_LINUX_ARM64@"
+    else
+      url "@URL_LINUX_X64@"
+      sha256 "@SHA256_LINUX_X64@"
+    end
+  end
+
+  def install
+    target = if OS.mac?
+      Hardware::CPU.arm? ? "aarch64-apple-darwin" : "x86_64-apple-darwin"
+    else
+      Hardware::CPU.arm? ? "aarch64-unknown-linux-gnu" : "x86_64-unknown-linux-gnu"
+    end
+    chdir "notmarkdown-tools-#{version}-#{target}" do
+      bin.install "notmarkdown", "notmarkdown-lsp", "notmd-tui"
+    end
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/notmarkdown --version")
+  end
+end

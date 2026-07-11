@@ -14,7 +14,8 @@ and unpacking do not require a server API.
 ## Implemented in 0.7
 
 - lossless, exact-lowercase `mermaid`, `vega-lite`, and `vegalite` source
-  fences with atomic Document-view previews and toolbar insertion;
+  fences with atomic Document-view previews, direct source editing, and toolbar
+  insertion;
 - pinned, lazy Mermaid 11.16.0 and Vega/Vega-Lite 6.2.0/6.4.3 rendering;
 - strict offline preflight, bounded values-only charts, a fixed visual theme,
   render timeouts, concurrency limits, and a per-document automatic budget;
@@ -23,6 +24,11 @@ and unpacking do not require a server API.
 - accessible bounded data tables for chart previews;
 - draw.io, editable draw.io SVG, Mermaid source, and Vega-Lite asset inference,
   including compound filenames and canonical media roles;
+- lossless multi-representation assets across eager/range open and deterministic
+  save, with safe draw.io SVG preview selection and per-representation
+  load/extract/replace controls;
+- pre-load authoring limits and bounded UTF-8/XML validation for draw.io source
+  and SVG representations;
 - a restrictive application Content Security Policy as defense in depth.
 
 Append `?embed=1` when Studio is hosted inside the NotMarkdown landing page.
@@ -150,14 +156,13 @@ saved while a referenced asset is missing or an embedded asset is unused.
 
 - Browsers without the native save picker still need a final in-memory Blob for
   download; the UI labels that path as a compatibility fallback.
-- The package view edits the first representation of each logical asset;
-  multi-representation authoring is not exposed yet.
 - Generated previews are session caches and are not persisted as authoritative
   content.
 - The visual editor covers the implemented parser subset. Source remains the
   escape hatch for supported structures without a visual control.
-- Tables, citations, full diagram authoring, ZIP64, and signatures remain later
-  milestones.
+- Tables, citations, an embedded draw.io canvas, ZIP64, and signatures remain
+  later milestones. Editable draw.io files currently use Extract → edit in
+  diagrams.net/draw.io → Replace.
 
 No scripts, macros, notebook cells, interactive forms, arbitrary HTML, or
 arbitrary visual layout are supported.

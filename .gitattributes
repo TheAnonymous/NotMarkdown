@@ -1,0 +1,33 @@
+# Repository text is canonical UTF-8/LF on every checkout. This is required for
+# byte-exact conformance fixtures and deterministic package hashes on Windows.
+* text=auto eol=lf
+
+# Formats whose bytes must never be filtered by Git.
+*.nmdoc binary -eol
+*.zip binary -eol
+*.gz binary -eol
+*.zst binary -eol
+*.png binary -eol
+*.jpg binary -eol
+*.jpeg binary -eol
+*.webp binary -eol
+*.avif binary -eol
+*.gif binary -eol
+*.ico binary -eol
+*.woff binary -eol
+*.woff2 binary -eol
+*.ttf binary -eol
+*.otf binary -eol
+*.mp3 binary -eol
+*.opus binary -eol
+*.ogg binary -eol
+*.mp4 binary -eol
+*.webm binary -eol
+
+# Textual fixtures that can also be treated as media by host applications.
+*.nmt text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.svg text eol=lf
+*.drawio text eol=lf
+*.dio text eol=lf

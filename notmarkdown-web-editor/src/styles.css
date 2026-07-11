@@ -600,10 +600,14 @@ button {
 .static-visual-output { display: grid; place-items: center; min-height: 180px; padding: 12px; overflow: auto; border: 1px solid #ddd9d0; border-radius: 9px; background: white; }
 .static-visual-output img { display: block; max-width: 100%; max-height: 520px; }
 .nmd-static-visual details { margin-top: 10px; color: var(--muted); font-size: 12px; }
-.nmd-static-visual details pre { max-height: 190px; padding: 12px; overflow: auto; white-space: pre-wrap; background: #25242a; color: #eeeaf8; }
+.static-visual-source textarea { display: block; width: 100%; min-height: 150px; margin: 9px 0; padding: 12px; resize: vertical; border: 1px solid #4a4852; border-radius: 8px; outline: none; background: #25242a; color: #eeeaf8; font: 12px/1.5 var(--mono); tab-size: 2; }
+.static-visual-source textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.static-visual-source button { padding: 6px 10px; background: white; }
 .visual-status { color: var(--muted); font: 11px/1.5 var(--mono); }.visual-error { color: #a53c3c; }
 .chart-data-summary table { width: 100%; margin-top: 10px; border-collapse: collapse; font: 11px/1.4 var(--mono); }
 .chart-data-summary th, .chart-data-summary td { padding: 6px 8px; border: 1px solid #ddd9d0; text-align: left; }
+.chart-data-summary caption { padding: 4px 0 8px; color: var(--ink); font-weight: 700; text-align: left; }
+.chart-encoding-summary { margin: 9px 0; color: var(--ink-muted); font: 11px/1.5 var(--mono); }
 
 .nmd-media-node img,
 .nmd-media-node video {
@@ -870,7 +874,7 @@ select:focus,
 
 .asset-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
   gap: 15px;
 }
 
@@ -953,9 +957,59 @@ select:focus,
 
 .asset-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 5px;
   margin-top: auto;
   padding-top: 6px;
+}
+
+.representation-list {
+  display: grid;
+  gap: 7px;
+  margin: 5px 0;
+}
+
+.representation-row {
+  display: grid;
+  gap: 7px;
+  padding: 8px;
+  border: 1px solid #e2e3ea;
+  border-radius: 7px;
+  background: white;
+}
+
+.representation-row > div:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.representation-row strong,
+.representation-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compact-file-button {
+  display: inline-grid;
+  place-items: center;
+  padding: 5px 8px;
+  border: 1px solid #dcdee7;
+  border-radius: 6px;
+  color: #676a78;
+  background: white;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.compact-file-button:hover {
+  border-color: #bdb5f5;
+  color: var(--accent-deep);
+}
+
+.compact-file-button input {
+  display: none;
 }
 
 .asset-actions button {

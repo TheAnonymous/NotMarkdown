@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>org.notmarkdown.intellij</id>
     <name>NotMarkdown</name>
-    <vendor url="https://notmarkdown.org">NotMarkdown</vendor>
+    <vendor url="https://theanonymous.github.io/NotMarkdown/">NotMarkdown</vendor>
 
     <description><![CDATA[
       Deterministic <code>.nmt</code> source support and safe <code>.nmdoc</code>

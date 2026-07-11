@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { parse } from "@notmarkdown/reference-toolchain";
-import App from "./App";
+import App, { cacheRepresentationIfCurrent } from "./App";
 import { DocumentEditor } from "./components/DocumentEditor";
 import type { AssetData } from "./core/container";
 import type {
@@ -126,6 +126,82 @@ describe("NotMarkdown Studio", () => {
       await screen.findByRole("button", { name: "Load image · asset:rotor" })
     );
     expect(load).toHaveBeenCalledWith("rotor");
+  });
+
+  it("does not let a stale deferred read overwrite a replaced representation", () => {
+    const source = {
+      path: "assets/architecture.drawio",
+      fileName: "architecture.drawio",
+      mediaType: "application/vnd.jgraph.mxfile",
+      fingerprint: "old-source-sha",
+      role: "source" as const,
+      bytes: 3
+    };
+    const preview = {
+      path: "assets/architecture.drawio.svg",
+      fileName: "architecture.drawio.svg",
+      mediaType: "image/svg+xml",
+      fingerprint: "preview-sha",
+      role: "source" as const,
+      bytes: 4,
+      data: new Uint8Array([4, 5, 6, 7])
+    };
+    const opened: AssetData = {
+      id: "architecture",
+      kind: "diagram",
+      ...preview,
+      representations: [source, preview]
+    };
+    const replaced: AssetData = {
+      ...opened,
+      representations: [
+        { ...source, fingerprint: "replacement-sha" },
+        preview
+      ]
+    };
+
+    expect(
+      cacheRepresentationIfCurrent(
+        replaced,
+        0,
+        source,
+        new Uint8Array([1, 2, 3])
+      )
+    ).toBeUndefined();
+    expect(replaced.representations?.[0]?.data).toBeUndefined();
+    expect(
+      cacheRepresentationIfCurrent(
+        {
+          ...opened,
+          representations: [
+            { ...source, path: "assets/moved.drawio" },
+            preview
+          ]
+        },
+        0,
+        source,
+        new Uint8Array([1, 2, 3])
+      )
+    ).toBeUndefined();
+    expect(
+      cacheRepresentationIfCurrent(
+        opened,
+        1,
+        source,
+        new Uint8Array([1, 2, 3])
+      )
+    ).toBeUndefined();
+
+    const cached = cacheRepresentationIfCurrent(
+      opened,
+      0,
+      source,
+      new Uint8Array([1, 2, 3])
+    );
+    expect(cached?.representations?.[0]?.data).toEqual(
+      new Uint8Array([1, 2, 3])
+    );
+    expect(cached?.fingerprint).toBe("preview-sha");
   });
 
   it("opens an OS-launched source through the normal local intake path", async () => {

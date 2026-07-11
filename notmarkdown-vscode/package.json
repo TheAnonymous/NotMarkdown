@@ -5,6 +5,22 @@
   "version": "0.2.0",
   "publisher": "notmarkdown",
   "license": "MIT",
+  "homepage": "https://theanonymous.github.io/NotMarkdown/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TheAnonymous/NotMarkdown.git"
+  },
+  "bugs": {
+    "url": "https://github.com/TheAnonymous/NotMarkdown/issues"
+  },
+  "qna": false,
+  "pricing": "Free",
+  "preview": true,
+  "icon": "images/icon.png",
+  "galleryBanner": {
+    "color": "#17171b",
+    "theme": "dark"
+  },
   "engines": {
     "vscode": "^1.107.0"
   },
@@ -18,7 +34,10 @@
     "documentation",
     "markdown",
     "nmdoc",
-    "nmt"
+    "nmt",
+    "mermaid",
+    "vega-lite",
+    "drawio"
   ],
   "activationEvents": [
     "onLanguage:notmarkdown",
@@ -120,7 +139,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmit && esbuild src/extension.ts --bundle --platform=node --external:vscode --outfile=dist/extension.js --sourcemap",
     "check": "npm run build && node --test test/*.test.cjs",
-    "package": "vsce package --allow-missing-repository --out notmarkdown-vscode-0.2.0.vsix"
+    "package": "vsce package --out notmarkdown-vscode-0.2.0.vsix"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"

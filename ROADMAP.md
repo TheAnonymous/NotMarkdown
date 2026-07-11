@@ -1,27 +1,34 @@
 # NotMarkdown roadmap
 
-## Compatibility Kit 0.1 — local release candidate
+## Compatibility Kit 0.2 — public release candidate
 
 The goal is to make `receive, open, convert, publish, diff, and verify` as
 frictionless as authoring already is.
 
 Implemented and locally verified:
 
-- bounded CommonMark/GitHub-dialect import with explicit dialect choice;
-- Markdown and inert self-contained HTML export;
+- bounded CommonMark/GitHub-dialect import with explicit dialect choice,
+  recursive tree migration, and adoption of safe local assets;
+- Markdown export and inert self-contained HTML export with verified embedded
+  image/audio/video assets and explicit loss reports;
 - machine-readable loss reports for non-representable semantics;
 - `notmarkdown git install` and cached canonical text conversion;
 - a language-neutral conformance corpus and read-only cross-platform CI;
 - installed-PWA file handling with universal picker/drop fallbacks;
-- deterministic local source-release archives and checksums.
+- deterministic source archives and checksums;
+- six-target CLI/LSP/TUI release automation, a payload-verified VSIX,
+  provenance attestations, and generated Homebrew/WinGet/Scoop/AUR inputs;
+- editable Mermaid/Vega-Lite source and multi-representation draw.io assets in
+  the browser Studio.
 
-Still required before the full 0.1 milestone closes:
+Still required before the Compatibility Kit becomes stable:
 
-- a reusable read-only WASM viewer and static publish command;
-- clean cross-platform binary builds and signing;
-- public hosting and distribution after license/security release gates.
+- successful public CI and native release smoke tests on all six targets;
+- signed desktop installers and platform lifecycle testing;
+- Marketplace and package-repository review under maintainer-owned accounts;
+- a reusable read-only WASM viewer and richer static diagram rendering.
 
-## Everywhere 0.2
+## Everywhere 0.3
 
 - signed Windows, macOS, and Linux desktop installers;
 - `.nmdoc` and `.nmt` operating-system file associations;
@@ -31,7 +38,7 @@ Still required before the full 0.1 milestone closes:
 - GitHub/GitLab verify, semantic-diff, and preview integrations;
 - Homebrew, WinGet/Scoop, and a Linux package channel.
 
-## Interoperability 0.3
+## Interoperability 0.4
 
 - stable Rust/WASM/C API surface and thin language bindings;
 - normative media- and theme-profile selection algorithms;

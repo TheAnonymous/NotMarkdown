@@ -1,5 +1,10 @@
 # NotMarkdown
 
+[![Pages](https://github.com/TheAnonymous/NotMarkdown/actions/workflows/pages.yml/badge.svg)](https://github.com/TheAnonymous/NotMarkdown/actions/workflows/pages.yml)
+[![Node toolchain](https://github.com/TheAnonymous/NotMarkdown/actions/workflows/node.yml/badge.svg)](https://github.com/TheAnonymous/NotMarkdown/actions/workflows/node.yml)
+[![Rust workspace](https://github.com/TheAnonymous/NotMarkdown/actions/workflows/rust.yml/badge.svg)](https://github.com/TheAnonymous/NotMarkdown/actions/workflows/rust.yml)
+[![License: MIT / CC0](https://img.shields.io/badge/license-MIT%20%2F%20CC0-5b4bc4)](LICENSE-POLICY.md)
+
 NotMarkdown is a static, deterministic, single-file document format for
 technical work. It keeps human-readable `document.nmt` source, embedded modern
 media, metadata, fallbacks, and integrity information inside one portable
@@ -29,7 +34,7 @@ Every NotMarkdown editor exposes the same concepts:
 | VS Code extension | 0.2.0 | Script-free preview, package inspector, and visual snippets |
 | JetBrains extension | 0.1.0 | Commercial-LSP source scaffold |
 | Landing page | 0.3.0 | Polished page with embedded real Studio and visual showcase |
-| Compatibility Kit | 0.2.0 local RC | Visuals, import/export, Git, conformance, PWA, and release handoff |
+| Compatibility Kit | 0.2.0 public RC | Visuals, import/export, Git, conformance, PWA, and attested release artifacts |
 
 ## Repository map
 
@@ -49,6 +54,38 @@ release/                       deterministic offline source-release handoff
 The format draft, CDM schema, source grammar, manifest schema, architecture,
 and adoption plan live at the repository root so implementations can review
 the contract without installing an editor.
+
+## Try it in five minutes
+
+The fastest path needs no installation: open the [live NotMarkdown
+Studio](https://theanonymous.github.io/NotMarkdown/#studio), edit the example,
+switch between Document, Source, and Package, then save an `.nmt` or `.nmdoc`
+file locally. Documents are processed in the browser and are not uploaded.
+
+To try the command-line implementation from source:
+
+```sh
+git clone https://github.com/TheAnonymous/NotMarkdown.git
+cd NotMarkdown/notmarkdown-rust
+cargo run --release -p notmarkdown-cli -- --help
+```
+
+Import a Markdown file together with safe local images, inspect the package,
+and export readable Markdown again:
+
+```sh
+cargo run --release -p notmarkdown-cli -- import ../README.md \
+  --dialect github --to nmdoc --output README.nmdoc \
+  --loss-report import-loss.json
+cargo run --release -p notmarkdown-cli -- inspect README.nmdoc
+cargo run --release -p notmarkdown-cli -- export README.nmdoc \
+  --to markdown --output README-export.md \
+  --loss-report export-loss.json
+```
+
+Download the [single-file diagrams and charts
+showcase](https://theanonymous.github.io/NotMarkdown/downloads/NotMarkdown-visuals-0.1.nmdoc)
+to test Mermaid, Vega-Lite, and draw.io interoperability.
 
 ## Build and verify
 
@@ -95,13 +132,14 @@ the version contract permits it; it is never silently deleted.
 
 ## Project status
 
-This repository is being prepared for its first public source publication. The
-format is not yet 1.0. The local Compatibility Kit now provides bounded,
-explicit import/export, semantic Git integration, active conformance fixtures,
-and installable-PWA file intake. Code is MIT-licensed; specifications and
-conformance material use CC0-1.0. Remaining release work includes cross-platform
-binary builds, a reusable viewer/static publisher, signing, distribution, a
-complete third-party audit, and a monitored private security contact.
+The source repository and browser Studio are public; the format remains a 0.1
+draft and is not yet 1.0. Compatibility Kit 0.2 provides bounded import/export,
+semantic Git integration, active conformance fixtures, PWA file intake, and a
+six-target unsigned prerelease pipeline with checksums and provenance
+attestations. Code is MIT-licensed; specifications and conformance material use
+CC0-1.0. Remaining work includes signed desktop installers, Marketplace and
+package-repository review, a reusable WASM viewer, a complete third-party
+audit, and maintainer-owned security/publishing controls.
 
 See [ROADMAP.md](ROADMAP.md), [CONTRIBUTING.md](CONTRIBUTING.md), and
 [SECURITY.md](SECURITY.md).

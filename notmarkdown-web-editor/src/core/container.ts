@@ -7,12 +7,12 @@ import type { DocumentNode } from "@notmarkdown/reference-toolchain";
 export type ContainerProfile = "modern-0.1" | "portable-0.1";
 export type Compression = "store" | "deflate" | "zstd";
 
-export interface AssetData {
-  id: string;
+export interface AssetRepresentationData {
+  /** Original package path; retained when an opened package is rewritten. */
+  path?: string;
   fileName: string;
   mediaType: string;
   fingerprint: string;
-  kind: "image" | "audio" | "video" | "diagram" | "data" | "attachment";
   role:
     | "playback"
     | "original"
@@ -29,6 +29,17 @@ export interface AssetData {
   data?: Uint8Array;
   load?: () => Promise<Uint8Array>;
   openStream?: () => ReadableStream<Uint8Array>;
+}
+
+/**
+ * One logical asset. The inherited fields are the safe default representation
+ * used by the document canvas. `representations`, when present, is the
+ * authoritative list retained by package open/edit/save.
+ */
+export interface AssetData extends AssetRepresentationData {
+  id: string;
+  kind: "image" | "audio" | "video" | "diagram" | "data" | "attachment";
+  representations?: AssetRepresentationData[];
 }
 
 export interface ManifestRepresentation {
@@ -105,6 +116,7 @@ export interface PackageWriteTelemetry {
 
 interface PreparedAsset {
   asset: AssetData;
+  representation: AssetRepresentationData;
   path: string;
   bytes: number;
   checksum: number;
@@ -120,16 +132,30 @@ const DOS_DATE = 0x0021;
 const LOCAL = 0x04034b50;
 const CENTRAL = 0x02014b50;
 const EOCD = 0x06054b50;
+const ZSTD_FRAME_MAGIC = 0xfd2fb528;
 const MAX_EOCD_BYTES = 65_557;
 const MAX_ENTRIES = 4096;
-const MAX_ENTRY_BYTES = 512 * 1024 * 1024;
-const MAX_EXPANDED_BYTES = 1024 ** 3;
+const MIB = 1024 * 1024;
+const MAX_ARCHIVE_BYTES = 320 * MIB;
+const MAX_ENTRY_BYTES = 128 * MIB;
+const MAX_EXPANDED_BYTES = 256 * MIB;
+const MAX_MANIFEST_BYTES = 4 * MIB;
+const MAX_SOURCE_BYTES = 16 * MIB;
+const MAX_MIMETYPE_BYTES = 256;
+const MAX_PACKED_OVERHEAD_BYTES = MIB;
 const MAX_COMPRESSION_RATIO = 1000;
+export const MAX_DRAWIO_SOURCE_BYTES = 1024 * 1024;
+export const MAX_DRAWIO_SVG_PREVIEW_BYTES = 4 * 1024 * 1024;
+export const MAX_DECLARATIVE_VISUAL_BYTES = 256 * 1024;
+export const MAX_UI_MATERIALIZE_BYTES = 64 * 1024 * 1024;
 const MAX_CENTRAL_DIRECTORY_BYTES = 16 * 1024 * 1024;
-const MAX_ZIP32_BYTES = 0xffff_ffff;
 const compressible = new Set([
   "application/json",
   "application/xml",
+  "application/vnd.jgraph.mxfile",
+  "application/vnd.vegalite+json",
+  "application/vnd.vegalite.v5+json",
+  "application/vnd.vegalite.v6+json",
   "image/svg+xml",
   "text/csv",
   "text/markdown",
@@ -180,6 +206,13 @@ export async function writeBrowserPackageToSink(
   };
   try {
     const source = normalizeSource(options.source);
+    if (source.length > MAX_SOURCE_BYTES) {
+      throw new Error("Document source exceeds the 16 MiB browser package limit.");
+    }
+    const sourceBytes = encoder.encode(source);
+    if (sourceBytes.length > MAX_SOURCE_BYTES) {
+      throw new Error("Document source exceeds the 16 MiB browser package limit.");
+    }
     const parsed = parse(source);
     if (!parsed.document) {
       throw new Error(
@@ -189,6 +222,12 @@ export async function writeBrowserPackageToSink(
     const referenced = collectAssetIds(parsed.document);
     const assets = [...options.assets].sort(compareAssetIds);
     const byId = new Map(assets.map((asset) => [asset.id, asset]));
+    if (byId.size !== assets.length) throw new Error("Duplicate logical asset ID.");
+    for (const asset of assets) {
+      if (!/^[A-Za-z][A-Za-z0-9._-]*$/.test(asset.id)) {
+        throw new Error("Invalid asset ID " + asset.id + ".");
+      }
+    }
     for (const id of referenced) {
       if (!byId.has(id)) throw new Error("Missing asset " + id + ".");
     }
@@ -200,39 +239,55 @@ export async function writeBrowserPackageToSink(
 
     const prepared: PreparedAsset[] = [];
     const manifestAssets: Record<string, ManifestAsset> = {};
+    const usedPaths = new Set<string>();
     for (const asset of assets) {
-      const integrity = await scanAsset(asset);
-      telemetry.sourceAssetBytesRead += integrity.bytes;
-      if (telemetry.sourceAssetBytesRead > MAX_EXPANDED_BYTES) {
-        throw new Error("Package resource limit exceeded.");
+      const representations = assetRepresentations(asset).sort(compareRepresentations);
+      if (!representations.length) throw new Error("Asset " + asset.id + " has no data.");
+      const manifestRepresentations: ManifestRepresentation[] = [];
+      for (const representation of representations) {
+        const integrity = await scanRepresentation(asset.id, representation);
+        if (
+          /^[0-9a-f]{64}$/.test(representation.fingerprint) &&
+          representation.fingerprint !== integrity.sha256
+        ) {
+          throw new Error(
+            `Asset ${asset.id} representation ${representation.fileName} failed its SHA-256 check.`
+          );
+        }
+        telemetry.sourceAssetBytesRead += integrity.bytes;
+        if (telemetry.sourceAssetBytesRead > MAX_EXPANDED_BYTES) {
+          throw new Error("Package resource limit exceeded.");
+        }
+        const requestedPath =
+          representation.path ??
+          "assets/" +
+            asset.id +
+            safeExtension(representation.fileName, representation.mediaType);
+        const path = allocateRepresentationPath(requestedPath, usedPaths);
+        const item: PreparedAsset = {
+          asset,
+          representation,
+          path,
+          bytes: integrity.bytes,
+          checksum: integrity.checksum,
+          sha256: integrity.sha256,
+          compression: compressionFor(options.profile, representation.mediaType)
+        };
+        prepared.push(item);
+        manifestRepresentations.push({
+          path,
+          mediaType: representation.mediaType,
+          role: representation.role,
+          bytes: integrity.bytes,
+          sha256: integrity.sha256
+        });
       }
-      const path =
-        "assets/" + asset.id + safeExtension(asset.fileName, asset.mediaType);
-      safePath(path);
-      const item: PreparedAsset = {
-        asset,
-        path,
-        bytes: integrity.bytes,
-        checksum: integrity.checksum,
-        sha256: integrity.sha256,
-        compression: compressionFor(options.profile, asset.mediaType)
-      };
-      prepared.push(item);
       manifestAssets[asset.id] = {
         kind: asset.kind,
-        representations: [
-          {
-            path,
-            mediaType: asset.mediaType,
-            role: asset.role,
-            bytes: integrity.bytes,
-            sha256: integrity.sha256
-          }
-        ]
+        representations: manifestRepresentations
       };
     }
 
-    const sourceBytes = encoder.encode(source);
     const manifest: PackageManifest = {
       format: "notmarkdown",
       packageVersion: "0.1",
@@ -245,15 +300,27 @@ export async function writeBrowserPackageToSink(
     };
     const textCompression: Compression =
       options.profile === "modern-0.1" ? "zstd" : "deflate";
+    const manifestBytes = encoder.encode(stableJson(manifest) + "\n");
+    if (manifestBytes.length > MAX_MANIFEST_BYTES) {
+      throw new Error("Manifest exceeds the 4 MiB browser package limit.");
+    }
+    const mimetypeBytes = encoder.encode(MIMETYPE);
+    const plannedExpandedBytes = prepared.reduce(
+      (total, item) => total + item.bytes,
+      mimetypeBytes.length + manifestBytes.length + sourceBytes.length
+    );
+    if (plannedExpandedBytes > MAX_EXPANDED_BYTES) {
+      throw new Error("Package expanded-size limit exceeded.");
+    }
     const writer = new StreamingZipWriter(sink, telemetry);
     await writer.writeBuffered(
       "mimetype",
-      encoder.encode(MIMETYPE),
+      mimetypeBytes,
       "store"
     );
     await writer.writeBuffered(
       "manifest.json",
-      encoder.encode(stableJson(manifest) + "\n"),
+      manifestBytes,
       textCompression
     );
     await writer.writeBuffered("document.nmt", sourceBytes, textCompression);
@@ -262,7 +329,10 @@ export async function writeBrowserPackageToSink(
         await writer.writeStoredAsset(item);
         telemetry.sourceAssetBytesRead += item.bytes;
       } else {
-        const data = await collectAsset(item.asset);
+        const data = await collectRepresentation(
+          item.asset.id,
+          item.representation
+        );
         verifyPreparedAsset(item, data);
         telemetry.sourceAssetBytesRead += data.length;
         telemetry.peakBufferedEntryBytes = Math.max(
@@ -297,6 +367,7 @@ interface StreamedCentralEntry {
 
 class StreamingZipWriter {
   private offset = 0;
+  private expandedBytes = 0;
   private readonly entries: StreamedCentralEntry[] = [];
 
   constructor(
@@ -343,7 +414,10 @@ class StreamingZipWriter {
     const hash = incrementalSha256.create();
     let checksum = 0xffffffff;
     let bytes = 0;
-    for await (const chunk of assetChunks(item.asset)) {
+    for await (const chunk of representationChunks(
+      item.asset.id,
+      item.representation
+    )) {
       bytes += chunk.length;
       if (bytes > item.bytes) {
         throw new Error("Asset " + item.asset.id + " changed while saving.");
@@ -392,13 +466,23 @@ class StreamingZipWriter {
     if (this.entries.some((entry) => decode(entry.name) === path)) {
       throw new Error("Duplicate entry " + path + ".");
     }
-    if (
-      packedBytes > MAX_ZIP32_BYTES ||
-      bytes > MAX_ENTRY_BYTES ||
-      this.offset > MAX_ZIP32_BYTES
-    ) {
-      throw new Error("ZIP32 package limit exceeded.");
+    const expandedLimit = expandedLimitForPath(path);
+    if (bytes > expandedLimit) {
+      throw new Error("Package entry exceeds its browser resource limit.");
     }
+    if (packedBytes > expandedLimit + MAX_PACKED_OVERHEAD_BYTES) {
+      throw new Error("Compressed package entry exceeds its browser resource limit.");
+    }
+    if (compression === "store" && packedBytes !== bytes) {
+      throw new Error("Stored package entry has inconsistent sizes.");
+    }
+    if (this.expandedBytes + bytes > MAX_EXPANDED_BYTES) {
+      throw new Error("Package expanded-size limit exceeded.");
+    }
+    if (this.offset > MAX_ARCHIVE_BYTES) {
+      throw new Error("Browser package size limit exceeded.");
+    }
+    this.expandedBytes += bytes;
     const method = compressionMethod(compression);
     return {
       name: encoder.encode(path),
@@ -412,8 +496,8 @@ class StreamingZipWriter {
   }
 
   private async emit(data: Uint8Array): Promise<void> {
-    if (this.offset + data.length > MAX_ZIP32_BYTES) {
-      throw new Error("ZIP32 package limit exceeded.");
+    if (this.offset + data.length > MAX_ARCHIVE_BYTES) {
+      throw new Error("Browser package size limit exceeded.");
     }
     await this.sink.write(data);
     this.offset += data.length;
@@ -457,7 +541,10 @@ function compressionMethod(compression: Compression): number {
   return compression === "store" ? 0 : compression === "deflate" ? 8 : 93;
 }
 
-async function scanAsset(asset: AssetData): Promise<{
+async function scanRepresentation(
+  assetId: string,
+  representation: AssetRepresentationData
+): Promise<{
   bytes: number;
   checksum: number;
   sha256: string;
@@ -465,16 +552,16 @@ async function scanAsset(asset: AssetData): Promise<{
   const hash = incrementalSha256.create();
   let checksum = 0xffffffff;
   let bytes = 0;
-  for await (const chunk of assetChunks(asset)) {
+  for await (const chunk of representationChunks(assetId, representation)) {
     bytes += chunk.length;
     if (bytes > MAX_ENTRY_BYTES) {
-      throw new Error("Asset " + asset.id + " exceeds the size limit.");
+      throw new Error("Asset " + assetId + " exceeds the size limit.");
     }
     checksum = crc32Update(checksum, chunk);
     hash.update(chunk);
   }
-  if (bytes !== asset.bytes) {
-    throw new Error("Asset " + asset.id + " failed its size check.");
+  if (bytes !== representation.bytes) {
+    throw new Error("Asset " + assetId + " failed its size check.");
   }
   return {
     bytes,
@@ -483,13 +570,16 @@ async function scanAsset(asset: AssetData): Promise<{
   };
 }
 
-async function* assetChunks(asset: AssetData): AsyncGenerator<Uint8Array> {
-  if (asset.data) {
-    yield asset.data;
+async function* representationChunks(
+  assetId: string,
+  representation: AssetRepresentationData
+): AsyncGenerator<Uint8Array> {
+  if (representation.data) {
+    yield representation.data;
     return;
   }
-  if (asset.openStream) {
-    const reader = asset.openStream().getReader();
+  if (representation.openStream) {
+    const reader = representation.openStream().getReader();
     try {
       while (true) {
         const next = await reader.read();
@@ -501,19 +591,22 @@ async function* assetChunks(asset: AssetData): AsyncGenerator<Uint8Array> {
     }
     return;
   }
-  const data = await asset.load?.();
-  if (!data) throw new Error("Asset " + asset.id + " has no readable data.");
+  const data = await representation.load?.();
+  if (!data) throw new Error("Asset " + assetId + " has no readable data.");
   yield data;
 }
 
-async function collectAsset(asset: AssetData): Promise<Uint8Array> {
-  if (asset.data) return asset.data;
+async function collectRepresentation(
+  assetId: string,
+  representation: AssetRepresentationData
+): Promise<Uint8Array> {
+  if (representation.data) return representation.data;
   const chunks: Uint8Array[] = [];
   let bytes = 0;
-  for await (const chunk of assetChunks(asset)) {
+  for await (const chunk of representationChunks(assetId, representation)) {
     bytes += chunk.length;
     if (bytes > MAX_ENTRY_BYTES) {
-      throw new Error("Asset " + asset.id + " exceeds the size limit.");
+      throw new Error("Asset " + assetId + " exceeds the size limit.");
     }
     chunks.push(chunk.slice());
   }
@@ -532,6 +625,155 @@ function verifyPreparedAsset(item: PreparedAsset, data: Uint8Array): void {
 
 function compareAssetIds(left: AssetData, right: AssetData): number {
   return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+}
+
+export function assetRepresentations(
+  asset: AssetData
+): AssetRepresentationData[] {
+  return asset.representations?.length
+    ? [...asset.representations]
+    : [representationFromAsset(asset)];
+}
+
+/** Picks a non-active representation suitable for the document canvas. */
+export function selectAssetRepresentationIndex(asset: AssetData): number {
+  const representations = assetRepresentations(asset);
+  const score = (representation: AssetRepresentationData): number => {
+    const lower = (representation.path ?? representation.fileName).toLowerCase();
+    if (asset.kind === "diagram") {
+      if (
+        representation.mediaType === "image/svg+xml" &&
+        lower.endsWith(".drawio.svg")
+      ) return 0;
+      if (representation.mediaType === "image/svg+xml") return 1;
+      if (representation.role === "fallback") return 2;
+      if (representation.mediaType === "application/vnd.jgraph.mxfile") return 9;
+      if (representation.mediaType === "text/vnd.mermaid") return 10;
+    }
+    if (representation.role === "playback") return 0;
+    if (representation.role === "fallback") return 1;
+    if (representation.role === "thumbnail") return 2;
+    if (representation.role === "source") return 5;
+    return 4;
+  };
+  let selected = 0;
+  for (let index = 1; index < representations.length; index++) {
+    const difference = score(representations[index]!) - score(representations[selected]!);
+    if (
+      difference < 0 ||
+      (difference === 0 &&
+        compareRepresentations(representations[index]!, representations[selected]!) < 0)
+    ) {
+      selected = index;
+    }
+  }
+  return selected;
+}
+
+export function selectAssetRepresentation(asset: AssetData): AssetRepresentationData {
+  const representations = assetRepresentations(asset);
+  return representations[selectAssetRepresentationIndex(asset)]!;
+}
+
+export function assertRepresentationLoadable(
+  asset: AssetData,
+  representation: AssetRepresentationData,
+  purpose: "preview" | "author" | "materialize" = "materialize"
+): void {
+  if (representation.bytes > MAX_UI_MATERIALIZE_BYTES) {
+    throw new Error("Representation exceeds the 64 MiB browser materialization limit.");
+  }
+  const lower = (representation.path ?? representation.fileName).toLowerCase();
+  if (
+    purpose !== "materialize" &&
+    representation.mediaType === "application/vnd.jgraph.mxfile" &&
+    representation.bytes > MAX_DRAWIO_SOURCE_BYTES
+  ) {
+    throw new Error("draw.io source exceeds the 1 MiB authoring limit.");
+  }
+  if (
+    purpose !== "materialize" &&
+    representation.mediaType === "image/svg+xml" &&
+    lower.endsWith(".drawio.svg") &&
+    representation.bytes > MAX_DRAWIO_SVG_PREVIEW_BYTES
+  ) {
+    throw new Error("draw.io SVG exceeds the 4 MiB browser authoring limit.");
+  }
+  if (
+    purpose === "preview" &&
+    (representation.mediaType === "text/vnd.mermaid" ||
+      representation.mediaType.startsWith("application/vnd.vegalite")) &&
+    representation.bytes > MAX_DECLARATIVE_VISUAL_BYTES
+  ) {
+    throw new Error("Declarative visual source exceeds the 256 KiB preview limit.");
+  }
+  if (asset.kind === "diagram" && purpose === "preview") {
+    if (
+      representation.mediaType !== "image/svg+xml" &&
+      representation.mediaType !== "text/vnd.mermaid"
+    ) {
+      throw new Error("This diagram representation is source-only and cannot be previewed.");
+    }
+  }
+}
+
+function representationFromAsset(asset: AssetData): AssetRepresentationData {
+  return {
+    ...(asset.path ? { path: asset.path } : {}),
+    fileName: asset.fileName,
+    mediaType: asset.mediaType,
+    fingerprint: asset.fingerprint,
+    role: asset.role,
+    bytes: asset.bytes,
+    ...(asset.data ? { data: asset.data } : {}),
+    ...(asset.load ? { load: asset.load } : {}),
+    ...(asset.openStream ? { openStream: asset.openStream } : {})
+  };
+}
+
+function logicalAsset(
+  id: string,
+  kind: AssetData["kind"],
+  representations: AssetRepresentationData[]
+): AssetData {
+  if (!representations.length) throw new Error("Asset " + id + " has no data.");
+  const provisional: AssetData = {
+    id,
+    kind,
+    ...representations[0]!,
+    representations
+  };
+  const selected = representations[selectAssetRepresentationIndex(provisional)]!;
+  return { id, kind, ...selected, representations };
+}
+
+function compareRepresentations(
+  left: AssetRepresentationData,
+  right: AssetRepresentationData
+): number {
+  const roleRank: Record<AssetRepresentationData["role"], number> = {
+    source: 0,
+    data: 1,
+    playback: 2,
+    fallback: 3,
+    original: 4,
+    poster: 5,
+    thumbnail: 6,
+    waveform: 7,
+    captions: 8,
+    transcript: 9,
+    chapters: 10
+  };
+  return (
+    roleRank[left.role] - roleRank[right.role] ||
+    compareText(left.path ?? left.fileName, right.path ?? right.fileName) ||
+    compareText(left.mediaType, right.mediaType) ||
+    compareText(left.fingerprint, right.fingerprint)
+  );
+}
+
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 export async function openBrowserPackage(
@@ -569,27 +811,30 @@ export async function openBrowserPackage(
   const assets: AssetData[] = [];
   const declared = new Set(["mimetype", "manifest.json", "document.nmt"]);
   for (const [id, asset] of Object.entries(manifest.assets)) {
-    const representation = asset.representations[0];
-    if (!representation) throw new Error("Asset " + id + " has no data.");
-    declared.add(representation.path);
-    const entry = required(byPath, representation.path);
-    const data = eagerData(entry);
-    if (
-      data.length !== representation.bytes ||
-      (await sha256(data)) !== representation.sha256
-    ) {
-      throw new Error("Asset " + id + " failed its integrity check.");
+    const representations: AssetRepresentationData[] = [];
+    for (const representation of asset.representations) {
+      declared.add(representation.path);
+      const entry = required(byPath, representation.path);
+      const data = eagerData(entry);
+      if (
+        data.length !== representation.bytes ||
+        (await sha256(data)) !== representation.sha256
+      ) {
+        throw new Error(
+          `Asset ${id} representation ${representation.path} failed its integrity check.`
+        );
+      }
+      representations.push({
+        path: representation.path,
+        fileName: representation.path.split("/").at(-1) ?? id,
+        mediaType: representation.mediaType,
+        fingerprint: representation.sha256,
+        role: representation.role,
+        bytes: data.length,
+        data
+      });
     }
-    assets.push({
-      id,
-      fileName: representation.path.split("/").at(-1) ?? id,
-      mediaType: representation.mediaType,
-      fingerprint: representation.sha256,
-      kind: asset.kind,
-      role: representation.role,
-      bytes: data.length,
-      data
-    });
+    assets.push(logicalAsset(id, asset.kind, representations));
   }
   for (const entry of entries) {
     if (!declared.has(entry.path)) {
@@ -652,6 +897,13 @@ export async function openBrowserPackageFromRangeSource(
     entriesLoaded: 0
   }
 ): Promise<OpenedBrowserPackage> {
+  if (
+    !Number.isSafeInteger(source.size) ||
+    source.size < 0 ||
+    source.size > MAX_ARCHIVE_BYTES
+  ) {
+    throw new Error("Package exceeds the 320 MiB browser archive limit.");
+  }
   telemetry.archiveBytes = source.size;
   telemetry.bytesRead = 0;
   telemetry.rangeReads = 0;
@@ -704,35 +956,40 @@ export async function openBrowserPackageFromRangeSource(
   const assets: AssetData[] = [];
   const declared = new Set(["mimetype", "manifest.json", "document.nmt"]);
   for (const [id, asset] of Object.entries(manifest.assets)) {
-    const representation = asset.representations[0];
-    if (!representation) throw new Error("Asset " + id + " has no data.");
-    declared.add(representation.path);
-    const entry = requiredRanged(byPath, representation.path);
-    if (entry.uncompressedBytes !== representation.bytes) {
-      throw new Error("Asset " + id + " failed its size check.");
+    const representations: AssetRepresentationData[] = [];
+    for (const representation of asset.representations) {
+      declared.add(representation.path);
+      const entry = requiredRanged(byPath, representation.path);
+      if (entry.uncompressedBytes !== representation.bytes) {
+        throw new Error(
+          `Asset ${id} representation ${representation.path} failed its size check.`
+        );
+      }
+      let loaded: Promise<Uint8Array> | undefined;
+      const load = () => {
+        loaded ??= (async () => {
+          const data = await directory.readEntry(entry);
+          if ((await sha256(data)) !== representation.sha256) {
+            throw new Error(
+              `Asset ${id} representation ${representation.path} failed its SHA-256 check.`
+            );
+          }
+          return data;
+        })();
+        return loaded;
+      };
+      representations.push({
+        path: representation.path,
+        fileName: representation.path.split("/").at(-1) ?? id,
+        mediaType: representation.mediaType,
+        fingerprint: representation.sha256,
+        role: representation.role,
+        bytes: representation.bytes,
+        load,
+        openStream: () => directory.streamEntry(entry)
+      });
     }
-    let loaded: Promise<Uint8Array> | undefined;
-    const load = () => {
-      loaded ??= (async () => {
-        const data = await directory.readEntry(entry);
-        if ((await sha256(data)) !== representation.sha256) {
-          throw new Error("Asset " + id + " failed its SHA-256 check.");
-        }
-        return data;
-      })();
-      return loaded;
-    };
-    assets.push({
-      id,
-      fileName: representation.path.split("/").at(-1) ?? id,
-      mediaType: representation.mediaType,
-      fingerprint: representation.sha256,
-      kind: asset.kind,
-      role: representation.role,
-      bytes: representation.bytes,
-      load,
-      openStream: () => directory.streamEntry(entry)
-    });
+    assets.push(logicalAsset(id, asset.kind, representations));
   }
   for (const entry of directory.entries) {
     if (!declared.has(entry.path)) {
@@ -881,7 +1138,11 @@ async function readZipDirectory(
 
   const readEntry = async (entry: RangedZipEntry) => {
       const packed = await source.read(entry.dataOffset, entry.compressedBytes);
-      const data = await decompressBytes(packed, entry.compression);
+      const data = await decompressBytes(
+        packed,
+        entry.compression,
+        entry.uncompressedBytes
+      );
       if (data.length !== entry.uncompressedBytes || crc32(data) !== entry.checksum) {
         throw new Error("Integrity check failed for " + entry.path + ".");
       }
@@ -961,12 +1222,28 @@ function recordRange(
   ranges.length = write;
 }
 
-export async function materializeAsset(asset: AssetData): Promise<Uint8Array> {
-  const data = asset.data ?? (await asset.load?.()) ?? (await collectAsset(asset));
-  if (data.length !== asset.bytes) {
+export async function materializeRepresentation(
+  asset: AssetData,
+  representation: AssetRepresentationData,
+  purpose: "preview" | "author" | "materialize" = "materialize"
+): Promise<Uint8Array> {
+  assertRepresentationLoadable(asset, representation, purpose);
+  const data =
+    representation.data ??
+    (await representation.load?.()) ??
+    (await collectRepresentation(asset.id, representation));
+  if (data.length !== representation.bytes) {
     throw new Error("Asset " + asset.id + " failed its size check.");
   }
   return data;
+}
+
+export async function materializeAsset(
+  asset: AssetData,
+  purpose: "preview" | "author" | "materialize" = "materialize"
+): Promise<Uint8Array> {
+  const representation = selectAssetRepresentation(asset);
+  return materializeRepresentation(asset, representation, purpose);
 }
 
 export async function writeZip(
@@ -983,11 +1260,20 @@ export async function writeZip(
     version: number;
   }> = [];
   let offset = 0;
+  let expandedBytes = 0;
 
   for (const input of inputs) {
     safePath(input.path);
     if (seen.has(input.path)) throw new Error("Duplicate entry " + input.path);
     seen.add(input.path);
+    const expandedLimit = expandedLimitForPath(input.path);
+    if (input.data.length > expandedLimit) {
+      throw new Error("Package entry exceeds its browser resource limit.");
+    }
+    expandedBytes += input.data.length;
+    if (expandedBytes > MAX_EXPANDED_BYTES) {
+      throw new Error("Package expanded-size limit exceeded.");
+    }
     const name = encoder.encode(input.path);
     const method =
       input.compression === "store"
@@ -996,6 +1282,9 @@ export async function writeZip(
           ? 8
           : 93;
     const packed = await compressBytes(input.data, input.compression);
+    if (packed.length > expandedLimit + MAX_PACKED_OVERHEAD_BYTES) {
+      throw new Error("Compressed package entry exceeds its browser resource limit.");
+    }
     entries.push({
       name,
       data: input.data,
@@ -1006,6 +1295,9 @@ export async function writeZip(
       version: method === 93 ? 63 : 20
     });
     offset += 30 + name.length + packed.length;
+    if (offset > MAX_ARCHIVE_BYTES) {
+      throw new Error("Browser package size limit exceeded.");
+    }
   }
 
   const local: Uint8Array[] = [];
@@ -1048,10 +1340,16 @@ export async function writeZip(
   u16(eocdView, 10, entries.length);
   u32(eocdView, 12, centralBytes.length);
   u32(eocdView, 16, offset);
+  if (offset + centralBytes.length + eocd.length > MAX_ARCHIVE_BYTES) {
+    throw new Error("Browser package size limit exceeded.");
+  }
   return concat([...local, centralBytes, eocd]);
 }
 
 export async function readZip(input: Uint8Array): Promise<PackageEntry[]> {
+  if (input.length > MAX_ARCHIVE_BYTES) {
+    throw new Error("Package exceeds the 320 MiB browser archive limit.");
+  }
   const view = new DataView(input.buffer, input.byteOffset, input.byteLength);
   const eocd = findEocd(view);
   ensure(view, eocd, 22);
@@ -1140,7 +1438,7 @@ export async function readZip(input: Uint8Array): Promise<PackageEntry[]> {
     ensure(view, dataOffset, packedSize);
     const packed = input.subarray(dataOffset, dataOffset + packedSize);
     const compression = compressionFromMethod(method);
-    const data = await decompressBytes(packed, compression);
+    const data = await decompressBytes(packed, compression, size);
     if (data.length !== size || crc32(data) !== checksum) {
       throw new Error("Integrity check failed for " + path + ".");
     }
@@ -1245,12 +1543,84 @@ async function compressBytes(
 
 async function decompressBytes(
   data: Uint8Array,
-  compression: Compression
+  compression: Compression,
+  expectedBytes: number
 ): Promise<Uint8Array> {
-  if (compression === "store") return data;
-  if (compression === "deflate") return inflateSync(data);
+  if (
+    !Number.isSafeInteger(expectedBytes) ||
+    expectedBytes < 0 ||
+    expectedBytes > MAX_ENTRY_BYTES
+  ) {
+    throw new Error("Invalid expanded entry size.");
+  }
+  if (compression === "store") {
+    if (data.length !== expectedBytes) {
+      throw new Error("Stored entry length differs from its ZIP header.");
+    }
+    return data;
+  }
+  if (compression === "deflate") {
+    // fflate otherwise grows its output buffer based on attacker-controlled
+    // data. One sentinel byte lets us distinguish exact output from truncation.
+    const output = inflateSync(data, {
+      out: new Uint8Array(expectedBytes + 1)
+    });
+    if (output.length !== expectedBytes) {
+      throw new Error("Deflate output length differs from its ZIP header.");
+    }
+    return output;
+  }
+  const frameBytes = zstdFrameContentSize(data);
+  if (frameBytes !== undefined && frameBytes !== expectedBytes) {
+    throw new Error("Zstandard frame size differs from its ZIP header.");
+  }
   await ensureZstd();
-  return decompress(data);
+  // Unknown-size frames are constrained to the already validated ZIP size.
+  // Known-size frames were checked above before the WASM codec can malloc.
+  const output = decompress(data, {
+    defaultHeapSize: Math.max(expectedBytes, 1)
+  });
+  if (output.length !== expectedBytes) {
+    throw new Error("Zstandard output length differs from its ZIP header.");
+  }
+  return output;
+}
+
+/** Reads the first standard Zstandard frame header without allocating output. */
+function zstdFrameContentSize(data: Uint8Array): number | undefined {
+  if (data.length < 5) throw new Error("Truncated Zstandard frame header.");
+  const magic = new DataView(
+    data.buffer,
+    data.byteOffset,
+    data.byteLength
+  ).getUint32(0, true);
+  if (magic !== ZSTD_FRAME_MAGIC) {
+    throw new Error("Invalid Zstandard frame magic.");
+  }
+  const descriptor = data[4]!;
+  if ((descriptor & 0x18) !== 0) {
+    throw new Error("Invalid reserved bits in Zstandard frame header.");
+  }
+  const contentSizeFlag = descriptor >>> 6;
+  const singleSegment = (descriptor & 0x20) !== 0;
+  const dictionaryFlag = descriptor & 0x03;
+  const dictionaryBytes = [0, 1, 2, 4][dictionaryFlag]!;
+  const contentSizeBytes =
+    contentSizeFlag === 0 ? (singleSegment ? 1 : 0) : 1 << contentSizeFlag;
+  const cursor = 5 + (singleSegment ? 0 : 1) + dictionaryBytes;
+  if (cursor + contentSizeBytes > data.length) {
+    throw new Error("Truncated Zstandard frame header.");
+  }
+  if (contentSizeBytes === 0) return undefined;
+  let value = 0n;
+  for (let index = 0; index < contentSizeBytes; index++) {
+    value |= BigInt(data[cursor + index]!) << BigInt(index * 8);
+  }
+  if (contentSizeBytes === 2) value += 256n;
+  if (value > BigInt(MAX_ENTRY_BYTES)) {
+    throw new Error("Zstandard frame exceeds the browser entry limit.");
+  }
+  return Number(value);
 }
 
 function ensureZstd(): Promise<void> {
@@ -1299,18 +1669,102 @@ function validateCompressionProfile(
 }
 
 function parseManifest(source: string): PackageManifest {
-  const value = JSON.parse(source) as PackageManifest;
+  const value = JSON.parse(source) as unknown;
   if (
+    !isRecord(value) ||
     value.format !== "notmarkdown" ||
     value.packageVersion !== "0.1" ||
     value.source !== "document.nmt" ||
     value.themeProfile !== "0.1" ||
-    !["modern-0.1", "portable-0.1"].includes(value.containerProfile) ||
-    typeof value.assets !== "object"
+    (value.containerProfile !== "modern-0.1" &&
+      value.containerProfile !== "portable-0.1") ||
+    typeof value.mediaProfile !== "string" ||
+    typeof value.sourceSha256 !== "string" ||
+    !/^[0-9a-f]{64}$/.test(value.sourceSha256) ||
+    !isRecord(value.assets)
   ) {
     throw new Error("Invalid NotMarkdown manifest.");
   }
-  return value;
+  const assets: Record<string, ManifestAsset> = {};
+  const paths = new Set<string>();
+  for (const [id, rawAsset] of Object.entries(value.assets)) {
+    if (
+      !/^[A-Za-z][A-Za-z0-9._-]*$/.test(id) ||
+      !isRecord(rawAsset) ||
+      !validKind(rawAsset.kind) ||
+      !Array.isArray(rawAsset.representations) ||
+      rawAsset.representations.length === 0
+    ) {
+      throw new Error("Invalid manifest asset " + id + ".");
+    }
+    const representations: ManifestRepresentation[] = [];
+    for (const raw of rawAsset.representations) {
+      if (
+        !isRecord(raw) ||
+        typeof raw.path !== "string" ||
+        !raw.path.startsWith("assets/") ||
+        typeof raw.mediaType !== "string" ||
+        !/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/.test(raw.mediaType) ||
+        !validRole(raw.role) ||
+        !Number.isInteger(raw.bytes) ||
+        (raw.bytes as number) < 0 ||
+        (raw.bytes as number) > MAX_ENTRY_BYTES ||
+        typeof raw.sha256 !== "string" ||
+        !/^[0-9a-f]{64}$/.test(raw.sha256)
+      ) {
+        throw new Error("Invalid representation for asset " + id + ".");
+      }
+      safePath(raw.path);
+      if (paths.has(raw.path)) {
+        throw new Error("Duplicate manifest representation path " + raw.path + ".");
+      }
+      paths.add(raw.path);
+      representations.push({
+        path: raw.path,
+        mediaType: raw.mediaType,
+        role: raw.role,
+        bytes: raw.bytes as number,
+        sha256: raw.sha256
+      });
+    }
+    assets[id] = { kind: rawAsset.kind, representations };
+  }
+  return {
+    format: "notmarkdown",
+    packageVersion: "0.1",
+    source: "document.nmt",
+    sourceSha256: value.sourceSha256,
+    containerProfile: value.containerProfile,
+    themeProfile: "0.1",
+    mediaProfile: value.mediaProfile,
+    assets
+  };
+}
+
+function validKind(value: unknown): value is AssetData["kind"] {
+  return ["image", "audio", "video", "diagram", "data", "attachment"].includes(
+    String(value)
+  );
+}
+
+function validRole(value: unknown): value is AssetRepresentationData["role"] {
+  return [
+    "playback",
+    "original",
+    "fallback",
+    "poster",
+    "thumbnail",
+    "waveform",
+    "captions",
+    "transcript",
+    "chapters",
+    "source",
+    "data"
+  ].includes(String(value));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function required(
@@ -1354,8 +1808,15 @@ function validateZipEntry(
   safePath(path);
   if (seen.has(path)) throw new Error("Duplicate entry " + path + ".");
   seen.add(path);
-  if (size > MAX_ENTRY_BYTES) {
-    throw new Error("Package resource limit exceeded.");
+  const expandedLimit = expandedLimitForPath(path);
+  if (size > expandedLimit) {
+    throw new Error("Package entry exceeds its browser resource limit.");
+  }
+  if (packedSize > expandedLimit + MAX_PACKED_OVERHEAD_BYTES) {
+    throw new Error("Compressed package entry exceeds its browser resource limit.");
+  }
+  if (method === 0 && packedSize !== size) {
+    throw new Error("Stored package entry has inconsistent sizes.");
   }
   if (
     size > 0 &&
@@ -1365,8 +1826,19 @@ function validateZipEntry(
   }
 }
 
+function expandedLimitForPath(path: string): number {
+  if (path === "mimetype") return MAX_MIMETYPE_BYTES;
+  if (path === "manifest.json") return MAX_MANIFEST_BYTES;
+  if (path === "document.nmt") return MAX_SOURCE_BYTES;
+  return MAX_ENTRY_BYTES;
+}
+
 function safeExtension(fileName: string, mediaType: string): string {
-  const existing = fileName.toLowerCase().match(/(\.[a-z0-9]{1,10})$/)?.[1];
+  const lower = fileName.toLowerCase();
+  for (const compound of [".vegalite.json", ".drawio.svg", ".vl.json"]) {
+    if (lower.endsWith(compound)) return compound;
+  }
+  const existing = lower.match(/(\.[a-z0-9]{1,10})$/)?.[1];
   if (existing) return existing;
   return (
     {
@@ -1375,9 +1847,42 @@ function safeExtension(fileName: string, mediaType: string): string {
       "audio/opus": ".opus",
       "video/webm": ".webm",
       "text/vtt": ".vtt",
-      "application/json": ".json"
+      "text/vnd.mermaid": ".mmd",
+      "application/json": ".json",
+      "application/vnd.jgraph.mxfile": ".drawio",
+      "application/vnd.vegalite+json": ".vl.json",
+      "application/vnd.vegalite.v5+json": ".vl.json",
+      "application/vnd.vegalite.v6+json": ".vl.json"
     }[mediaType] ?? ".bin"
   );
+}
+
+function allocateRepresentationPath(
+  requested: string,
+  used: Set<string>
+): string {
+  safePath(requested);
+  if (!requested.startsWith("assets/")) {
+    throw new Error("Asset representations must live below assets/.");
+  }
+  if (!used.has(requested)) {
+    used.add(requested);
+    return requested;
+  }
+  const compound = [".vegalite.json", ".drawio.svg", ".vl.json"].find((suffix) =>
+    requested.toLowerCase().endsWith(suffix)
+  );
+  const ordinary = requested.match(/\.[A-Za-z0-9]{1,10}$/)?.[0] ?? "";
+  const extension = compound ?? ordinary;
+  const stem = extension ? requested.slice(0, -extension.length) : requested;
+  for (let index = 2; index < 10_000; index++) {
+    const candidate = `${stem}-${index}${extension}`;
+    if (!used.has(candidate)) {
+      used.add(candidate);
+      return candidate;
+    }
+  }
+  throw new Error("Could not allocate a unique asset representation path.");
 }
 
 function stableJson(value: unknown): string {

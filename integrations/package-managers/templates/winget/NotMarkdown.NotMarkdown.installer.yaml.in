@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.10.0.schema.json
+PackageIdentifier: NotMarkdown.NotMarkdown
+PackageVersion: @VERSION@
+InstallerType: zip
+NestedInstallerType: portable
+Installers:
+  - Architecture: x64
+    InstallerUrl: @URL_WINDOWS_X64@
+    InstallerSha256: @SHA256_WINDOWS_X64@
+    NestedInstallerFiles:
+      - RelativeFilePath: notmarkdown-tools-@VERSION@-x86_64-pc-windows-msvc\notmarkdown.exe
+        PortableCommandAlias: notmarkdown
+      - RelativeFilePath: notmarkdown-tools-@VERSION@-x86_64-pc-windows-msvc\notmarkdown-lsp.exe
+        PortableCommandAlias: notmarkdown-lsp
+      - RelativeFilePath: notmarkdown-tools-@VERSION@-x86_64-pc-windows-msvc\notmd-tui.exe
+        PortableCommandAlias: notmd-tui
+  - Architecture: arm64
+    InstallerUrl: @URL_WINDOWS_ARM64@
+    InstallerSha256: @SHA256_WINDOWS_ARM64@
+    NestedInstallerFiles:
+      - RelativeFilePath: notmarkdown-tools-@VERSION@-aarch64-pc-windows-msvc\notmarkdown.exe
+        PortableCommandAlias: notmarkdown
+      - RelativeFilePath: notmarkdown-tools-@VERSION@-aarch64-pc-windows-msvc\notmarkdown-lsp.exe
+        PortableCommandAlias: notmarkdown-lsp
+      - RelativeFilePath: notmarkdown-tools-@VERSION@-aarch64-pc-windows-msvc\notmd-tui.exe
+        PortableCommandAlias: notmd-tui
+ManifestType: installer
+ManifestVersion: 1.10.0

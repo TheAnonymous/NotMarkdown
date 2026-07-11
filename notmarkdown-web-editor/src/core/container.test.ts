@@ -1,13 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { deflateSync } from "fflate";
 import { openPackage as openNodePackage } from "@notmarkdown/reference-toolchain";
 import { parse } from "@notmarkdown/reference-toolchain/parser";
 import {
   createBrowserPackage,
+  assertRepresentationLoadable,
+  assetRepresentations,
   openBrowserPackage,
   openBrowserPackageFromBlob,
+  openBrowserPackageFromRangeSource,
+  readZip,
+  selectAssetRepresentation,
   writeBrowserPackageToSink,
+  writeZip,
   type AssetData
 } from "./container";
 import {
@@ -121,6 +128,90 @@ describe("browser container", () => {
     await expect(opened.assets[0]!.load!()).rejects.toThrow("Integrity check");
   });
 
+  it("rejects an oversized archive before issuing a range read", async () => {
+    let reads = 0;
+    await expect(
+      openBrowserPackageFromRangeSource({
+        size: 320 * 1024 * 1024 + 1,
+        async read() {
+          reads += 1;
+          throw new Error("must not read");
+        }
+      })
+    ).rejects.toThrow("320 MiB browser archive limit");
+    expect(reads).toBe(0);
+  });
+
+  it("rejects oversized ZIP declarations before reading entry output", async () => {
+    const archive = rawZip([
+      {
+        path: "assets/oversized.bin",
+        method: 8,
+        packed: new Uint8Array([3, 0]),
+        size: 128 * 1024 * 1024 + 1
+      }
+    ]);
+    await expect(readZip(archive)).rejects.toThrow(
+      "entry exceeds its browser resource limit"
+    );
+  });
+
+  it("bounds Deflate output even when the ZIP header lies about its size", async () => {
+    const packed = deflateSync(new Uint8Array(4096));
+    const archive = rawZip([
+      {
+        path: "assets/header-lie.txt",
+        method: 8,
+        packed,
+        size: 1
+      }
+    ]);
+    await expect(readZip(archive)).rejects.toThrow(
+      "Deflate output length differs from its ZIP header"
+    );
+  });
+
+  it("rejects a huge Zstandard frame size before invoking the WASM decoder", async () => {
+    const packed = new Uint8Array(13);
+    const view = new DataView(packed.buffer);
+    view.setUint32(0, 0xfd2fb528, true);
+    packed[4] = 0xe0; // single segment with an eight-byte content-size field
+    view.setBigUint64(5, BigInt(128 * 1024 * 1024 + 1), true);
+    const archive = rawZip([
+      {
+        path: "assets/frame-lie.txt",
+        method: 93,
+        packed,
+        size: 1
+      }
+    ]);
+    await expect(readZip(archive)).rejects.toThrow(
+      "Zstandard frame exceeds the browser entry limit"
+    );
+  });
+
+  it("accepts bounded Zstandard content-size encodings at frame boundaries", async () => {
+    for (const bytes of [0, 1, 255, 256, 65_535, 65_536]) {
+      const data = new Uint8Array(bytes);
+      let state = 0x9e3779b9 ^ bytes;
+      for (let index = 0; index < data.length; index++) {
+        state ^= state << 13;
+        state ^= state >>> 17;
+        state ^= state << 5;
+        data[index] = state;
+      }
+      const archive = await writeZip([
+        {
+          path: `assets/zstd-${bytes}.txt`,
+          data,
+          compression: "zstd"
+        }
+      ]);
+      const [entry] = await readZip(archive);
+      expect(entry?.data).toEqual(data);
+    }
+  });
+
   it("streams stored media without buffering the archive or asset", async () => {
     const data = new Uint8Array(512 * 1024);
     for (let index = 0; index < data.length; index++) data[index] = index * 17;
@@ -227,6 +318,117 @@ describe("browser container", () => {
       })
     ).rejects.toThrow("Missing asset pixel");
   });
+
+  it("preserves draw.io source and SVG representations through eager, range, and deterministic rewrite", async () => {
+    const visualSource = [
+      "@notmarkdown 0.1",
+      "",
+      "!diagram[Architecture] {",
+      "  type: architecture",
+      "  source: asset:architecture",
+      "}"
+    ].join("\n");
+    const drawio = new TextEncoder().encode(
+      '<mxfile><diagram name="Page-1"><mxGraphModel><root/></mxGraphModel></diagram></mxfile>'
+    );
+    const svg = new TextEncoder().encode(
+      '<svg xmlns="http://www.w3.org/2000/svg" content="&lt;mxfile/&gt;"><rect width="40" height="20"/></svg>'
+    );
+    const representations = [
+      {
+        fileName: "architecture.drawio.svg",
+        mediaType: "image/svg+xml",
+        fingerprint: "svg-session",
+        role: "source" as const,
+        bytes: svg.length,
+        data: svg
+      },
+      {
+        fileName: "architecture.drawio",
+        mediaType: "application/vnd.jgraph.mxfile",
+        fingerprint: "source-session",
+        role: "source" as const,
+        bytes: drawio.length,
+        data: drawio
+      }
+    ];
+    const architecture: AssetData = {
+      id: "architecture",
+      kind: "diagram",
+      ...representations[0],
+      representations
+    };
+    const first = await createBrowserPackage({
+      source: visualSource,
+      assets: [architecture],
+      profile: "modern-0.1"
+    });
+    const second = await createBrowserPackage({
+      source: visualSource,
+      assets: [architecture],
+      profile: "modern-0.1"
+    });
+    expect(first).toEqual(second);
+
+    const eager = await openBrowserPackage(first);
+    const eagerAsset = eager.assets[0]!;
+    expect(eager.manifest.assets.architecture?.representations.map((item) => item.path)).toEqual([
+      "assets/architecture.drawio",
+      "assets/architecture.drawio.svg"
+    ]);
+    expect(assetRepresentations(eagerAsset)).toHaveLength(2);
+    expect(
+      assetRepresentations(eagerAsset).map((item) => Array.from(item.data ?? []))
+    ).toEqual([Array.from(drawio), Array.from(svg)]);
+    expect(selectAssetRepresentation(eagerAsset).fileName).toBe(
+      "architecture.drawio.svg"
+    );
+    expect(eagerAsset.fileName).toBe("architecture.drawio.svg");
+
+    const ranged = await openBrowserPackageFromBlob(new Blob([first]));
+    const rangedAsset = ranged.assets[0]!;
+    expect(assetRepresentations(rangedAsset).every((item) => !item.data)).toBe(true);
+    expect(rangedAsset.fileName).toBe("architecture.drawio.svg");
+    const rangedRepresentations = assetRepresentations(rangedAsset);
+    expect(Array.from(await rangedRepresentations[0]!.load!())).toEqual(
+      Array.from(drawio)
+    );
+    expect(Array.from(await rangedRepresentations[1]!.load!())).toEqual(
+      Array.from(svg)
+    );
+
+    const rewritten = await createBrowserPackage({
+      source: ranged.source,
+      assets: ranged.assets,
+      profile: "modern-0.1"
+    });
+    expect(rewritten).toEqual(first);
+  });
+
+  it("rejects oversized visual authoring before invoking a deferred loader", () => {
+    let loaded = false;
+    const representation = {
+      fileName: "architecture.drawio",
+      mediaType: "application/vnd.jgraph.mxfile",
+      fingerprint: "oversized",
+      role: "source" as const,
+      bytes: 1024 * 1024 + 1,
+      load: async () => {
+        loaded = true;
+        return new Uint8Array(1024 * 1024 + 1);
+      }
+    };
+    const logical: AssetData = {
+      id: "architecture",
+      kind: "diagram",
+      ...representation,
+      representations: [representation]
+    };
+    expect(() => assertRepresentationLoadable(logical, representation, "author")).toThrow(
+      "1 MiB"
+    );
+    expect(loaded).toBe(false);
+  });
 });
 
 function findBytes(haystack: Uint8Array, needle: Uint8Array): number {
@@ -237,6 +439,59 @@ function findBytes(haystack: Uint8Array, needle: Uint8Array): number {
     return offset;
   }
   return -1;
+}
+
+function rawZip(
+  inputs: readonly {
+    path: string;
+    method: 0 | 8 | 93;
+    packed: Uint8Array;
+    size: number;
+    checksum?: number;
+  }[]
+): Uint8Array {
+  const encoder = new TextEncoder();
+  const local: Uint8Array[] = [];
+  const central: Uint8Array[] = [];
+  let offset = 0;
+  for (const input of inputs) {
+    const name = encoder.encode(input.path);
+    const localHeader = new Uint8Array(30);
+    const localView = new DataView(localHeader.buffer);
+    localView.setUint32(0, 0x04034b50, true);
+    localView.setUint16(4, input.method === 93 ? 63 : 20, true);
+    localView.setUint16(6, 0x0800, true);
+    localView.setUint16(8, input.method, true);
+    localView.setUint32(14, input.checksum ?? 0, true);
+    localView.setUint32(18, input.packed.length, true);
+    localView.setUint32(22, input.size, true);
+    localView.setUint16(26, name.length, true);
+    local.push(localHeader, name, input.packed);
+
+    const centralHeader = new Uint8Array(46);
+    const centralView = new DataView(centralHeader.buffer);
+    centralView.setUint32(0, 0x02014b50, true);
+    centralView.setUint16(4, 63, true);
+    centralView.setUint16(6, input.method === 93 ? 63 : 20, true);
+    centralView.setUint16(8, 0x0800, true);
+    centralView.setUint16(10, input.method, true);
+    centralView.setUint32(16, input.checksum ?? 0, true);
+    centralView.setUint32(20, input.packed.length, true);
+    centralView.setUint32(24, input.size, true);
+    centralView.setUint16(28, name.length, true);
+    centralView.setUint32(42, offset, true);
+    central.push(centralHeader, name);
+    offset += localHeader.length + name.length + input.packed.length;
+  }
+  const centralBytes = joinBytes(central);
+  const eocd = new Uint8Array(22);
+  const view = new DataView(eocd.buffer);
+  view.setUint32(0, 0x06054b50, true);
+  view.setUint16(8, inputs.length, true);
+  view.setUint16(10, inputs.length, true);
+  view.setUint32(12, centralBytes.length, true);
+  view.setUint32(16, offset, true);
+  return joinBytes([...local, centralBytes, eocd]);
 }
 
 function chunkedStream(

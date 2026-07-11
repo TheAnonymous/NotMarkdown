@@ -6,8 +6,11 @@ packaged without changing the document format.
 - `mime/` — proposed media types, deterministic identification, and IANA draft;
 - `linux/` — shared MIME/desktop packaging scaffold;
 - `icons/` — source artwork for generated platform icon sizes.
+- `package-managers/` — release-templated Homebrew, WinGet, Scoop, and AUR
+  manifests whose URLs and hashes come from final GitHub assets;
+- `desktop/` — a minimal Tauri 2 wrapper scaffold for the built Studio UI.
 
-Studio 0.6.2 separately declares progressive `.nmdoc`/`.nmt` file handlers and
+Studio 0.7.0 separately declares progressive `.nmdoc`/`.nmt` file handlers and
 a local Web Share Target in its relative web app manifest. Those browser APIs
 only apply to installed PWAs on supporting browser/operating-system pairs; they
 do not replace these native packaging declarations. Picker, drag/drop, native

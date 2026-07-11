@@ -1,0 +1,26 @@
+{
+  "version": "@VERSION@",
+  "description": "CLI, terminal editor, and language server for NotMarkdown",
+  "homepage": "https://theanonymous.github.io/NotMarkdown/",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "@URL_WINDOWS_X64@",
+      "hash": "@SHA256_WINDOWS_X64@",
+      "bin": [
+        "notmarkdown-tools-@VERSION@-x86_64-pc-windows-msvc\\notmarkdown.exe",
+        "notmarkdown-tools-@VERSION@-x86_64-pc-windows-msvc\\notmarkdown-lsp.exe",
+        "notmarkdown-tools-@VERSION@-x86_64-pc-windows-msvc\\notmd-tui.exe"
+      ]
+    },
+    "arm64": {
+      "url": "@URL_WINDOWS_ARM64@",
+      "hash": "@SHA256_WINDOWS_ARM64@",
+      "bin": [
+        "notmarkdown-tools-@VERSION@-aarch64-pc-windows-msvc\\notmarkdown.exe",
+        "notmarkdown-tools-@VERSION@-aarch64-pc-windows-msvc\\notmarkdown-lsp.exe",
+        "notmarkdown-tools-@VERSION@-aarch64-pc-windows-msvc\\notmd-tui.exe"
+      ]
+    }
+  }
+}

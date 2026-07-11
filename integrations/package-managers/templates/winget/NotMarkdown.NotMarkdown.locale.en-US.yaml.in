@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.10.0.schema.json
+PackageIdentifier: NotMarkdown.NotMarkdown
+PackageVersion: @VERSION@
+PackageLocale: en-US
+Publisher: NotMarkdown
+PackageName: NotMarkdown
+License: MIT
+LicenseUrl: https://github.com/@REPOSITORY@/blob/@TAG@/LICENSE
+ShortDescription: CLI, terminal editor, and language server for NotMarkdown
+PackageUrl: https://theanonymous.github.io/NotMarkdown/
+Tags:
+  - documentation
+  - markdown
+  - notmarkdown
+  - terminal
+ManifestType: defaultLocale
+ManifestVersion: 1.10.0

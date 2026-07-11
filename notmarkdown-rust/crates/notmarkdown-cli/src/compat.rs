@@ -2,7 +2,9 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    env, fs,
+    env,
+    ffi::OsString,
+    fs,
     fs::OpenOptions,
     io::Write,
     path::{Component, Path, PathBuf},
@@ -13,9 +15,14 @@ use notmarkdown_core::{
     Block, CalloutKind, Document, FigureAttributes, Inline, ListItem, MediaKind, Reference,
     RenderableNotation, parse, preflight_static_visual, renderable_notation, to_cdm_value,
 };
-use notmarkdown_package::{AssetInput, ContainerProfile, Manifest, create_package, open};
+use notmarkdown_package::{
+    AssetInput, ContainerProfile, Manifest, OpenedPackage, create_package, open,
+    read_asset_representation,
+};
 use serde::Serialize;
 use serde_json::Value;
+use unicode_casefold::UnicodeCaseFold;
+use unicode_normalization::UnicodeNormalization;
 
 const MAX_INPUT_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_LINES: usize = 100_000;
@@ -23,6 +30,11 @@ const MAX_BLOCKS: usize = 100_000;
 const MAX_INLINE_DEPTH: usize = 16;
 const MAX_ASSETS: usize = 512;
 const MAX_REPORT_ITEMS: usize = 4096;
+const MAX_MIGRATION_FILES: usize = 10_000;
+const MAX_MIGRATION_DEPTH: usize = 32;
+const MAX_HTML_EMBEDDED_ASSET_BYTES: usize = 8 * 1024 * 1024;
+const MAX_HTML_EMBEDDED_TOTAL_BYTES: usize = 24 * 1024 * 1024;
+const MAX_HTML_EMBEDDED_ASSETS: usize = 256;
 
 #[derive(Debug)]
 pub enum CompatError {
@@ -66,6 +78,40 @@ struct LossReport {
     warning_count: usize,
     truncated: bool,
     items: Vec<Loss>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MigrationLossReport {
+    report_version: &'static str,
+    operation: &'static str,
+    source: String,
+    target: String,
+    completed: bool,
+    lossless: bool,
+    files_discovered: usize,
+    files_succeeded: usize,
+    files_failed: usize,
+    reports: Vec<LossReport>,
+}
+
+#[derive(Clone, Debug)]
+struct EmbeddedHtmlAsset {
+    media_type: String,
+    data_url: String,
+}
+
+type EmbeddedHtmlAssets = BTreeMap<String, EmbeddedHtmlAsset>;
+
+struct HtmlAssetRender<'a> {
+    manifest: Option<&'a Manifest>,
+    embedded: &'a EmbeddedHtmlAssets,
+    path: &'a str,
+    kind: &'a str,
+    asset_id: &'a str,
+    label: &'a str,
+    plain_label: &'a str,
+    decorative: bool,
 }
 
 impl LossReport {
@@ -156,6 +202,7 @@ pub fn import_command(mut args: Vec<String>) -> Result<u8, CompatError> {
     }
     let output = PathBuf::from(required(&mut args, "--output")?);
     let report_path = option(&mut args, "--loss-report")?.map(PathBuf::from);
+    let recursive = flag(&mut args, "--recursive")?;
     let profile = match option(&mut args, "--profile")?
         .as_deref()
         .unwrap_or("portable")
@@ -165,25 +212,66 @@ pub fn import_command(mut args: Vec<String>) -> Result<u8, CompatError> {
         value => return Err(CompatError::Usage(format!("Unknown profile {value}."))),
     };
     reject_extra(&args)?;
+
+    if input.is_dir() {
+        if !recursive {
+            return Err(CompatError::Usage(
+                "Importing a directory requires --recursive.".into(),
+            ));
+        }
+        return import_directory(
+            &input,
+            &output,
+            report_path.as_deref(),
+            &dialect,
+            &target,
+            profile,
+        );
+    }
+    if recursive {
+        return Err(CompatError::Usage(
+            "--recursive requires a directory input.".into(),
+        ));
+    }
     preflight(&output, report_path.as_deref())?;
 
-    let source = bounded_text(&input)?;
+    let mut report = LossReport::new("import", &input, &output, Some(&dialect));
+    if let Err(error) = convert_markdown(&input, &output, &target, profile, &mut report) {
+        record_unreported_import_error(&mut report, &error);
+        emit(&report);
+        if let Some(path) = report_path.as_deref() {
+            write_json(path, &report)?;
+        }
+        return Err(error);
+    }
+    if let Some(path) = report_path.as_deref() {
+        write_json(path, &report)?;
+    } else {
+        emit(&report);
+    }
+    println!("{}", absolute(&output)?.display());
+    Ok(0)
+}
+
+fn convert_markdown(
+    input: &Path,
+    output: &Path,
+    target: &str,
+    profile: ContainerProfile,
+    report: &mut LossReport,
+) -> Result<(), CompatError> {
+    let source = bounded_text(input)?;
     let base = input
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .canonicalize()
         .map_err(op)?;
-    let mut report = LossReport::new("import", &input, &output, Some(&dialect));
     let (document, assets) = {
-        let mut importer = Importer::new(&base, &mut report);
+        let mut importer = Importer::new(&base, report);
         let document = importer.document(&source);
         (document, importer.assets)
     };
     if report.has_errors() {
-        emit(&report);
-        if let Some(path) = report_path.as_deref() {
-            write_json(path, &report)?;
-        }
         return Err(CompatError::Format(format!(
             "Import stopped after {} error(s); no document was written.",
             report.error_count
@@ -213,18 +301,366 @@ pub fn import_command(mut args: Vec<String>) -> Result<u8, CompatError> {
                 ),
             );
         }
-        write_new(&output, &nmt)?;
+        write_new(output, &nmt)
     } else {
-        create_package(&nmt, &assets, profile, &output)
-            .map_err(|error| CompatError::Operational(error.to_string()))?;
+        create_package(&nmt, &assets, profile, output)
+            .map(|_| ())
+            .map_err(|error| CompatError::Operational(error.to_string()))
     }
-    if let Some(path) = report_path.as_deref() {
-        write_json(path, &report)?;
-    } else {
-        emit(&report);
+}
+
+fn import_directory(
+    input: &Path,
+    output: &Path,
+    requested_report_path: Option<&Path>,
+    dialect: &str,
+    target: &str,
+    profile: ContainerProfile,
+) -> Result<u8, CompatError> {
+    if output.exists() {
+        return Err(CompatError::Operational(format!(
+            "Refusing to overwrite {}.",
+            output.display()
+        )));
     }
-    println!("{}", absolute(&output)?.display());
+    if requested_report_path.is_some_and(Path::exists) {
+        return Err(CompatError::Operational(format!(
+            "Refusing to overwrite {}.",
+            requested_report_path.expect("checked").display()
+        )));
+    }
+
+    let root = input.canonicalize().map_err(op)?;
+    if !root.is_dir() {
+        return Err(CompatError::Usage(
+            "--recursive requires a directory input.".into(),
+        ));
+    }
+    let output_absolute = prospective_absolute(output)?;
+    if output_absolute.starts_with(&root) {
+        return Err(CompatError::Usage(
+            "The recursive output directory must be outside the input tree.".into(),
+        ));
+    }
+    if let Some(report_path) = requested_report_path {
+        let report_absolute = prospective_absolute(report_path)?;
+        if report_absolute.starts_with(&output_absolute) {
+            return Err(CompatError::Usage(
+                "A recursive --loss-report path must be outside the output directory; an embedded report is created automatically.".into(),
+            ));
+        }
+    }
+
+    let files = collect_markdown_files(&root)?;
+    if files.is_empty() {
+        return Err(CompatError::Format(
+            "The input tree contains no .md or .markdown files.".into(),
+        ));
+    }
+
+    let mut portable_targets = BTreeSet::new();
+    let mut planned = Vec::with_capacity(files.len());
+    for source in files {
+        let relative = source
+            .strip_prefix(&root)
+            .map_err(|_| CompatError::Operational("Migration path escaped its root.".into()))?;
+        let relative_target = relative.with_extension(target);
+        let portable_key = portable_relative_path_key(&relative_target)?;
+        if !portable_targets.insert(portable_key) {
+            return Err(CompatError::Format(format!(
+                "Two Markdown inputs map to the same portable target path: {}.",
+                relative_target.display()
+            )));
+        }
+        planned.push((source, relative_target));
+    }
+
+    if let Some(parent) = output.parent().filter(|path| !path.as_os_str().is_empty()) {
+        fs::create_dir_all(parent).map_err(op)?;
+    }
+    let staging = unused_staging_directory(output)?;
+    fs::create_dir(&staging).map_err(op)?;
+
+    let mut reports = Vec::with_capacity(planned.len());
+    let mut succeeded = 0_usize;
+    for (source, relative_target) in &planned {
+        let staged_target = staging.join(relative_target);
+        let final_target = output.join(relative_target);
+        let mut report = LossReport::new("import", source, &final_target, Some(dialect));
+        let result = staged_target
+            .parent()
+            .ok_or_else(|| CompatError::Operational("Migration target has no parent.".into()))
+            .and_then(|parent| fs::create_dir_all(parent).map_err(op))
+            .and_then(|()| convert_markdown(source, &staged_target, target, profile, &mut report));
+        match result {
+            Ok(()) => succeeded += 1,
+            Err(error) => record_unreported_import_error(&mut report, &error),
+        }
+        reports.push(report);
+    }
+
+    let failed = reports.len().saturating_sub(succeeded);
+    let lossless = reports.iter().all(|report| report.lossless);
+    for report in &reports {
+        emit(report);
+    }
+    let migration_report = MigrationLossReport {
+        report_version: "0.1",
+        operation: "import-tree",
+        source: root.display().to_string(),
+        target: output_absolute.display().to_string(),
+        completed: failed == 0,
+        lossless,
+        files_discovered: planned.len(),
+        files_succeeded: succeeded,
+        files_failed: failed,
+        reports,
+    };
+
+    if failed != 0 {
+        let _ = fs::remove_dir_all(&staging);
+        let fallback_report = if let Some(path) = requested_report_path {
+            path.to_path_buf()
+        } else {
+            unused_failure_report(output)?
+        };
+        write_json(&fallback_report, &migration_report)?;
+        eprintln!(
+            "NMD-I300 recursive import failed; complete report: {}",
+            absolute(&fallback_report)?.display()
+        );
+        return Err(CompatError::Format(format!(
+            "Recursive import failed for {failed} of {} Markdown files; no output directory was committed.",
+            planned.len()
+        )));
+    }
+
+    let embedded_name = "migration-loss-report.json";
+    if let Err(error) = write_json(&staging.join(embedded_name), &migration_report) {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(error);
+    }
+    if let Err(error) = fs::rename(&staging, output) {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(op(error));
+    }
+    let embedded_report = output.join(embedded_name);
+    if let Some(report_path) = requested_report_path {
+        write_json(report_path, &migration_report)?;
+    }
+    println!("{}", absolute(output)?.display());
+    println!("loss report: {}", absolute(&embedded_report)?.display());
     Ok(0)
+}
+
+fn collect_markdown_files(root: &Path) -> Result<Vec<PathBuf>, CompatError> {
+    fn visit(directory: &Path, depth: usize, files: &mut Vec<PathBuf>) -> Result<(), CompatError> {
+        if depth > MAX_MIGRATION_DEPTH {
+            return Err(CompatError::Format(format!(
+                "Markdown migration exceeds the directory depth limit of {MAX_MIGRATION_DEPTH}."
+            )));
+        }
+        let mut entries = fs::read_dir(directory)
+            .map_err(op)?
+            .map(|entry| entry.map(|entry| entry.path()).map_err(op))
+            .collect::<Result<Vec<_>, _>>()?;
+        entries.sort();
+        for path in entries {
+            let metadata = fs::symlink_metadata(&path).map_err(op)?;
+            if metadata.file_type().is_symlink() {
+                return Err(CompatError::Format(format!(
+                    "Recursive migration refuses symbolic link {}.",
+                    path.display()
+                )));
+            }
+            if metadata.is_dir() {
+                visit(&path, depth + 1, files)?;
+            } else if metadata.is_file() && is_markdown_path(&path) {
+                if files.len() >= MAX_MIGRATION_FILES {
+                    return Err(CompatError::Format(format!(
+                        "Markdown migration exceeds the {MAX_MIGRATION_FILES}-file limit."
+                    )));
+                }
+                files.push(path);
+            }
+        }
+        Ok(())
+    }
+
+    let mut files = Vec::new();
+    visit(root, 0, &mut files)?;
+    Ok(files)
+}
+
+fn is_markdown_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            extension.eq_ignore_ascii_case("md") || extension.eq_ignore_ascii_case("markdown")
+        })
+}
+
+fn portable_relative_path_key(path: &Path) -> Result<String, CompatError> {
+    let mut normalized_components = Vec::new();
+    for component in path.components() {
+        let Component::Normal(component) = component else {
+            return Err(CompatError::Format(format!(
+                "Migration target path {} is not a portable relative path.",
+                path.display()
+            )));
+        };
+        let component = component.to_str().ok_or_else(|| {
+            CompatError::Format(format!(
+                "Migration target path {} contains a non-UTF-8 component.",
+                path.display()
+            ))
+        })?;
+        if component.nfc().collect::<String>() != component {
+            return Err(CompatError::Format(format!(
+                "Migration target component {component:?} is not canonical NFC Unicode."
+            )));
+        }
+        validate_portable_component(component)?;
+        let folded = component
+            .nfkc()
+            .case_fold()
+            .collect::<String>()
+            .nfc()
+            .collect::<String>();
+        validate_portable_component(&folded)?;
+        normalized_components.push(folded);
+    }
+    if normalized_components.is_empty() {
+        return Err(CompatError::Format(
+            "Migration target path cannot be empty.".into(),
+        ));
+    }
+    let key = normalized_components.join("/");
+    if key.encode_utf16().count() > 1024 {
+        return Err(CompatError::Format(
+            "Migration target path exceeds the portable length limit.".into(),
+        ));
+    }
+    Ok(key)
+}
+
+fn validate_portable_component(component: &str) -> Result<(), CompatError> {
+    if component.is_empty()
+        || component.ends_with([' ', '.'])
+        || component
+            .chars()
+            .any(|character| character.is_control() || r#"<>:"/\|?*"#.contains(character))
+        || component.encode_utf16().count() > 240
+    {
+        return Err(CompatError::Format(format!(
+            "Migration target component {component:?} is not portable to Windows and macOS."
+        )));
+    }
+    let device_name = component
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches([' ', '.'])
+        .to_ascii_uppercase();
+    let numbered_device = device_name
+        .strip_prefix("COM")
+        .or_else(|| device_name.strip_prefix("LPT"))
+        .is_some_and(|number| number.len() == 1 && matches!(number.as_bytes()[0], b'1'..=b'9'));
+    if matches!(
+        device_name.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+    ) || numbered_device
+    {
+        return Err(CompatError::Format(format!(
+            "Migration target component {component:?} uses a Windows-reserved device name."
+        )));
+    }
+    Ok(())
+}
+
+fn prospective_absolute(path: &Path) -> Result<PathBuf, CompatError> {
+    let mut cursor = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        env::current_dir().map_err(op)?.join(path)
+    };
+    let mut suffix = Vec::<OsString>::new();
+    while !cursor.exists() {
+        let name = cursor
+            .file_name()
+            .ok_or_else(|| CompatError::Operational("Cannot resolve output path.".into()))?;
+        suffix.push(name.to_os_string());
+        if !cursor.pop() {
+            return Err(CompatError::Operational(
+                "Cannot resolve output path.".into(),
+            ));
+        }
+    }
+    let mut resolved = cursor.canonicalize().map_err(op)?;
+    for component in suffix.into_iter().rev() {
+        resolved.push(component);
+    }
+    Ok(resolved)
+}
+
+fn unused_staging_directory(output: &Path) -> Result<PathBuf, CompatError> {
+    let name = output
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| CompatError::Usage("Output directory needs a UTF-8 name.".into()))?;
+    for suffix in 1..=1000 {
+        let candidate = output.with_file_name(format!(
+            ".{name}.notmarkdown-import-{}-{suffix}",
+            std::process::id()
+        ));
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    Err(CompatError::Operational(
+        "Cannot allocate a staging directory for recursive import.".into(),
+    ))
+}
+
+fn unused_failure_report(output: &Path) -> Result<PathBuf, CompatError> {
+    let preferred = output.with_extension("loss.json");
+    if !preferred.exists() {
+        return Ok(preferred);
+    }
+    let name = output
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| CompatError::Usage("Output directory needs a UTF-8 name.".into()))?;
+    for suffix in 2..=1000 {
+        let candidate = output.with_file_name(format!("{name}.loss-{suffix}.json"));
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    Err(CompatError::Operational(
+        "Cannot allocate a recursive import failure report path.".into(),
+    ))
+}
+
+fn record_unreported_import_error(report: &mut LossReport, error: &CompatError) {
+    if !report.has_errors() {
+        report.add(
+            Severity::Error,
+            "NMD-I000",
+            compat_error_message(error),
+            None,
+            None,
+            Some("No output was committed for this input.".into()),
+        );
+    }
+}
+
+fn compat_error_message(error: &CompatError) -> &str {
+    match error {
+        CompatError::Usage(message)
+        | CompatError::Format(message)
+        | CompatError::Operational(message) => message,
+    }
 }
 
 pub fn export_command(mut args: Vec<String>) -> Result<u8, CompatError> {
@@ -240,12 +676,34 @@ pub fn export_command(mut args: Vec<String>) -> Result<u8, CompatError> {
     let report_path = option(&mut args, "--loss-report")?.map(PathBuf::from);
     reject_extra(&args)?;
     preflight(&output, report_path.as_deref())?;
-    let loaded = load(&input)?;
     let mut report = LossReport::new("export", &input, &output, None);
+    let loaded = match load(&input) {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            report.add(
+                Severity::Error,
+                "NMD-E000",
+                compat_error_message(&error),
+                None,
+                None,
+                Some("No export was written.".into()),
+            );
+            emit(&report);
+            if let Some(path) = report_path.as_deref() {
+                write_json(path, &report)?;
+            }
+            return Err(error);
+        }
+    };
     let rendered = if target == "markdown" {
         to_markdown(&loaded.document, &mut report)
     } else {
-        to_html(&loaded.document, loaded.manifest.as_ref(), &mut report)
+        to_html(
+            &loaded.document,
+            loaded.manifest.as_ref(),
+            loaded.package.as_ref(),
+            &mut report,
+        )
     };
     write_new(&output, &rendered)?;
     if let Some(path) = report_path.as_deref() {
@@ -576,9 +1034,7 @@ impl<'a> Importer<'a> {
                 && is_drawio_svg_path(clean_target(destination))
             {
                 let label = inline_plain(&self.inlines(label, line_no, 0));
-                if let Some(source_asset) =
-                    self.local_asset(destination, line_no, &["diagram"])
-                {
+                if let Some(source_asset) = self.local_asset(destination, line_no, &["diagram"]) {
                     output.push(Block::Diagram {
                         diagram_type: "architecture".into(),
                         label: vec![Inline::Text { text: label }],
@@ -867,7 +1323,8 @@ impl<'a> Importer<'a> {
         line: usize,
         accepted_kinds: &[&str],
     ) -> Option<String> {
-        let destination = clean_target(destination);
+        let destination = clean_target(destination).replace('\\', "/");
+        let destination = destination.as_str();
         if destination.starts_with("https://") || destination.starts_with("http://") {
             self.report.warning(
                 "NMD-I200",
@@ -992,14 +1449,18 @@ impl<'a> Importer<'a> {
 struct Loaded {
     document: Document,
     manifest: Option<Manifest>,
+    package: Option<OpenedPackage>,
 }
 
 fn load(path: &Path) -> Result<Loaded, CompatError> {
     if extension(path) == Some("nmdoc") {
         let package = open(path).map_err(|error| CompatError::Format(error.to_string()))?;
+        let document = package.document.clone();
+        let manifest = package.manifest.clone();
         Ok(Loaded {
-            document: package.document,
-            manifest: Some(package.manifest),
+            document,
+            manifest: Some(manifest),
+            package: Some(package),
         })
     } else {
         let source = fs::read_to_string(path).map_err(op)?;
@@ -1015,6 +1476,7 @@ fn load(path: &Path) -> Result<Loaded, CompatError> {
         Ok(Loaded {
             document,
             manifest: None,
+            package: None,
         })
     }
 }
@@ -1246,17 +1708,27 @@ fn markdown_blocks(blocks: &[Block], output: &mut String, report: &mut LossRepor
                 items,
             } => markdown_list(*ordered, *start, items, output, report, &path, 0),
             Block::CodeBlock { language, text } => {
-                let fence = if text.lines().any(|line| line == "```") {
-                    "````"
-                } else {
-                    "```"
-                };
-                output.push_str(fence);
-                output.push_str(language.as_deref().unwrap_or(""));
+                let fence = markdown_fence(text);
+                output.push_str(&fence);
+                if let Some(language) = language {
+                    if safe_markdown_info(language) {
+                        output.push_str(language);
+                    } else {
+                        report.warning(
+                            "NMD-E025",
+                            "The code-block language is not a portable Markdown info token.",
+                            None,
+                            Some(path.clone()),
+                            "The code remains intact and the unsafe language token is omitted.",
+                        );
+                    }
+                }
                 output.push('\n');
                 output.push_str(text);
-                output.push('\n');
-                output.push_str(fence);
+                if !text.ends_with('\n') {
+                    output.push('\n');
+                }
+                output.push_str(&fence);
                 output.push('\n');
             }
             Block::Callout { kind, children } => {
@@ -1490,7 +1962,12 @@ fn markdown_asset_loss(report: &mut LossReport, path: &str, asset_id: &str) {
     );
 }
 
-fn to_html(document: &Document, manifest: Option<&Manifest>, report: &mut LossReport) -> String {
+fn to_html(
+    document: &Document,
+    manifest: Option<&Manifest>,
+    package: Option<&OpenedPackage>,
+    report: &mut LossReport,
+) -> String {
     let title = document
         .metadata
         .get("title")
@@ -1501,6 +1978,7 @@ fn to_html(document: &Document, manifest: Option<&Manifest>, report: &mut LossRe
         .get("language")
         .and_then(Value::as_str)
         .unwrap_or("en");
+    let embedded = prepare_html_assets(document, package, report);
     let mut body = String::new();
     if !document.metadata.is_empty() {
         body.push_str("<dl class=metadata aria-label=\"Document metadata\">");
@@ -1513,7 +1991,7 @@ fn to_html(document: &Document, manifest: Option<&Manifest>, report: &mut LossRe
         }
         body.push_str("</dl>");
     }
-    html_blocks(&document.blocks, &mut body, report, manifest, "");
+    html_blocks(&document.blocks, &mut body, report, manifest, &embedded, "");
     if !document.footnotes.is_empty() {
         body.push_str("<section class=footnotes aria-label=Footnotes><h2>Footnotes</h2><ol>");
         for (id, blocks) in &document.footnotes {
@@ -1523,6 +2001,7 @@ fn to_html(document: &Document, manifest: Option<&Manifest>, report: &mut LossRe
                 &mut body,
                 report,
                 manifest,
+                &embedded,
                 "/definitions/footnotes",
             );
             body.push_str("</li>");
@@ -1530,7 +2009,7 @@ fn to_html(document: &Document, manifest: Option<&Manifest>, report: &mut LossRe
         body.push_str("</ol></section>");
     }
     format!(
-        "<!doctype html>\n<html lang=\"{}\"><head><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; img-src data:; media-src data:; font-src data:; object-src 'none'; base-uri 'none'; form-action 'none'\"><meta name=generator content=\"NotMarkdown Compatibility Kit 0.1\"><title>{}</title><style>{}</style></head><body><main>{}</main></body></html>\n",
+        "<!doctype html>\n<html lang=\"{}\"><head><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; media-src data:; connect-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'\"><meta name=referrer content=no-referrer><meta name=generator content=\"NotMarkdown Compatibility Kit 0.1\"><title>{}</title><style>{}</style></head><body><main>{}</main></body></html>\n",
         html_escape(language),
         html_escape(title),
         HTML_STYLE,
@@ -1543,6 +2022,7 @@ fn html_blocks(
     output: &mut String,
     report: &mut LossReport,
     manifest: Option<&Manifest>,
+    embedded: &EmbeddedHtmlAssets,
     parent: &str,
 ) {
     for (index, block) in blocks.iter().enumerate() {
@@ -1558,12 +2038,12 @@ fn html_blocks(
                     output.push_str(&format!(" id=\"{}\"", html_escape(id)));
                 }
                 output.push('>');
-                output.push_str(&html_inlines(children, report, manifest, &path));
+                output.push_str(&html_inlines(children, report, manifest, embedded, &path));
                 output.push_str(&format!("</h{level}>"));
             }
             Block::Paragraph { children } => {
                 output.push_str("<p>");
-                output.push_str(&html_inlines(children, report, manifest, &path));
+                output.push_str(&html_inlines(children, report, manifest, embedded, &path));
                 output.push_str("</p>");
             }
             Block::ThematicBreak => output.push_str("<hr>"),
@@ -1582,10 +2062,14 @@ fn html_blocks(
                         output.push_str("<li>");
                         if let Some(id) = id {
                             output.push_str(&format!("<a href=\"#{}\">", html_escape(id)));
-                            output.push_str(&html_inlines(children, report, manifest, &path));
+                            output.push_str(&html_inlines(
+                                children, report, manifest, embedded, &path,
+                            ));
                             output.push_str("</a>");
                         } else {
-                            output.push_str(&html_inlines(children, report, manifest, &path));
+                            output.push_str(&html_inlines(
+                                children, report, manifest, embedded, &path,
+                            ));
                         }
                         output.push_str("</li>");
                     }
@@ -1594,7 +2078,7 @@ fn html_blocks(
             }
             Block::Quote { children } => {
                 output.push_str("<blockquote>");
-                html_blocks(children, output, report, manifest, &path);
+                html_blocks(children, output, report, manifest, embedded, &path);
                 output.push_str("</blockquote>");
             }
             Block::List {
@@ -1613,7 +2097,7 @@ fn html_blocks(
                     if let Some(checked) = item.checked {
                         output.push_str(if checked { "☑ " } else { "☐ " });
                     }
-                    html_blocks(&item.blocks, output, report, manifest, &path);
+                    html_blocks(&item.blocks, output, report, manifest, embedded, &path);
                     output.push_str("</li>");
                 }
                 output.push_str(&format!("</{tag}>"));
@@ -1651,10 +2135,7 @@ fn html_blocks(
                 } else {
                     output.push_str("<pre><code");
                     if let Some(language) = language {
-                        output.push_str(&format!(
-                            " data-language=\"{}\"",
-                            html_escape(language)
-                        ));
+                        output.push_str(&format!(" data-language=\"{}\"", html_escape(language)));
                     }
                     output.push('>');
                     output.push_str(&html_escape(text));
@@ -1667,7 +2148,7 @@ fn html_blocks(
                     callout_name(*kind).to_ascii_lowercase(),
                     callout_name(*kind)
                 ));
-                html_blocks(children, output, report, manifest, &path);
+                html_blocks(children, output, report, manifest, embedded, &path);
                 output.push_str("</aside>");
             }
             Block::Media {
@@ -1677,26 +2158,29 @@ fn html_blocks(
                 attributes,
                 decorative,
             } => {
-                let label = html_inlines(label, report, manifest, &path);
+                let plain_label = inline_plain(label);
+                let label = html_inlines(label, report, manifest, embedded, &path);
                 html_asset(
                     output,
                     report,
-                    manifest,
-                    &path,
-                    media_name(*kind),
-                    asset_id,
-                    &label,
+                    HtmlAssetRender {
+                        manifest,
+                        embedded,
+                        path: &path,
+                        kind: media_name(*kind),
+                        asset_id,
+                        label: &label,
+                        plain_label: &plain_label,
+                        decorative: *decorative,
+                    },
                 );
-                if *kind != MediaKind::Image
-                    || *decorative
-                    || attributes != &notmarkdown_core::MediaAttributes::default()
-                {
+                if *decorative || attributes != &notmarkdown_core::MediaAttributes::default() {
                     report.warning(
                         "NMD-E101",
-                        "Media playback, layout, and auxiliary relationships are inert in static HTML.",
+                        "Media layout and auxiliary relationships are not fully reproduced in static HTML.",
                         None,
                         Some(path),
-                        "Kind, label, asset ID, and representation metadata remain visible.",
+                        "Verified primary media remains available with controls; auxiliary metadata stays in the source package.",
                     );
                 }
             }
@@ -1705,15 +2189,22 @@ fn html_blocks(
                 label,
                 source_asset,
             } => {
-                let label = html_inlines(label, report, manifest, &path);
+                let plain_label = inline_plain(label);
+                let label = html_inlines(label, report, manifest, embedded, &path);
+                let kind = format!("diagram · {diagram_type}");
                 html_asset(
                     output,
                     report,
-                    manifest,
-                    &path,
-                    &format!("diagram · {diagram_type}"),
-                    source_asset,
-                    &label,
+                    HtmlAssetRender {
+                        manifest,
+                        embedded,
+                        path: &path,
+                        kind: &kind,
+                        asset_id: source_asset,
+                        label: &label,
+                        plain_label: &plain_label,
+                        decorative: false,
+                    },
                 );
             }
             Block::Chart {
@@ -1721,15 +2212,22 @@ fn html_blocks(
                 label,
                 data_asset,
             } => {
-                let label = html_inlines(label, report, manifest, &path);
+                let plain_label = inline_plain(label);
+                let label = html_inlines(label, report, manifest, embedded, &path);
+                let kind = format!("chart · {chart_type}");
                 html_asset(
                     output,
                     report,
-                    manifest,
-                    &path,
-                    &format!("chart · {chart_type}"),
-                    data_asset,
-                    &label,
+                    HtmlAssetRender {
+                        manifest,
+                        embedded,
+                        path: &path,
+                        kind: &kind,
+                        asset_id: data_asset,
+                        label: &label,
+                        plain_label: &plain_label,
+                        decorative: false,
+                    },
                 );
             }
             Block::MathBlock { notation, source } => output.push_str(&format!(
@@ -1738,15 +2236,21 @@ fn html_blocks(
                 html_escape(notation)
             )),
             Block::Attachment { label, asset_id } => {
-                let label = html_inlines(label, report, manifest, &path);
+                let plain_label = inline_plain(label);
+                let label = html_inlines(label, report, manifest, embedded, &path);
                 html_asset(
                     output,
                     report,
-                    manifest,
-                    &path,
-                    "attachment",
-                    asset_id,
-                    &label,
+                    HtmlAssetRender {
+                        manifest,
+                        embedded,
+                        path: &path,
+                        kind: "attachment",
+                        asset_id,
+                        label: &label,
+                        plain_label: &plain_label,
+                        decorative: false,
+                    },
                 );
             }
         }
@@ -1757,6 +2261,7 @@ fn html_inlines(
     nodes: &[Inline],
     report: &mut LossReport,
     manifest: Option<&Manifest>,
+    embedded: &EmbeddedHtmlAssets,
     path: &str,
 ) -> String {
     let mut output = String::new();
@@ -1765,17 +2270,17 @@ fn html_inlines(
             Inline::Text { text } => output.push_str(&html_escape(text)),
             Inline::Emphasis { children } => output.push_str(&format!(
                 "<em>{}</em>",
-                html_inlines(children, report, manifest, path)
+                html_inlines(children, report, manifest, embedded, path)
             )),
             Inline::Strong { children } => output.push_str(&format!(
                 "<strong>{}</strong>",
-                html_inlines(children, report, manifest, path)
+                html_inlines(children, report, manifest, embedded, path)
             )),
             Inline::Code { text } => {
                 output.push_str(&format!("<code>{}</code>", html_escape(text)));
             }
             Inline::Link { target, children } => {
-                let label = html_inlines(children, report, manifest, path);
+                let label = html_inlines(children, report, manifest, embedded, path);
                 match target {
                     Reference::External { uri } => output.push_str(&format!(
                         "<a href=\"{}\" rel=\"noreferrer noopener\">{label}</a>",
@@ -1799,16 +2304,31 @@ fn html_inlines(
                 attributes,
                 decorative,
             } => {
-                if *decorative {
+                if let Some(asset) = embedded.get(asset_id)
+                    && allowed_embedded_media_type("image", &asset.media_type)
+                {
+                    let escaped_alt = if *decorative {
+                        String::new()
+                    } else {
+                        html_escape(alt)
+                    };
+                    output.push_str(&format!(
+                        "<img class=\"asset inline-image\" src=\"{}\" alt=\"{}\"{}>",
+                        asset.data_url,
+                        escaped_alt,
+                        if *decorative { " aria-hidden=true" } else { "" }
+                    ));
+                } else if *decorative {
                     output.push_str("<span class=\"asset inline-image\" aria-hidden=true>Decorative image</span>");
+                    html_asset_loss(report, path, asset_id, manifest);
                 } else {
                     output.push_str(&format!(
                         "<span class=\"asset inline-image\" role=img aria-label=\"{}\">Image · {}</span>",
                         html_escape(alt),
                         html_escape(alt)
                     ));
+                    html_asset_loss(report, path, asset_id, manifest);
                 }
-                html_asset_loss(report, path, asset_id, manifest);
                 if attributes.layout.is_some() {
                     report.warning(
                         "NMD-E102",
@@ -1828,7 +2348,7 @@ fn html_inlines(
             Inline::CrossReference { target, children } => output.push_str(&format!(
                 "<a href=\"#{}\">{}</a>",
                 html_escape(target),
-                html_inlines(children, report, manifest, path)
+                html_inlines(children, report, manifest, embedded, path)
             )),
             Inline::MathInline { notation, source } => output.push_str(&format!(
                 "<code class=math data-notation=\"{}\">{}</code>",
@@ -1840,22 +2360,402 @@ fn html_inlines(
     output
 }
 
-fn html_asset(
-    output: &mut String,
+fn prepare_html_assets(
+    document: &Document,
+    package: Option<&OpenedPackage>,
     report: &mut LossReport,
-    manifest: Option<&Manifest>,
-    path: &str,
-    kind: &str,
-    asset_id: &str,
-    label: &str,
-) {
+) -> EmbeddedHtmlAssets {
+    let Some(package) = package else {
+        return BTreeMap::new();
+    };
+    let mut embedded = BTreeMap::new();
+    let mut total_bytes = 0_usize;
+    for asset_id in html_primary_asset_ids(document) {
+        if embedded.len() >= MAX_HTML_EMBEDDED_ASSETS {
+            html_embed_loss(
+                report,
+                &asset_id,
+                "the HTML embedded-asset count limit was reached",
+            );
+            continue;
+        }
+        let Some(asset) = package.manifest.assets.get(&asset_id) else {
+            continue;
+        };
+        if !matches!(asset.kind.as_str(), "image" | "audio" | "video") {
+            continue;
+        }
+        let mut candidates = asset
+            .representations
+            .iter()
+            .filter(|representation| {
+                allowed_embedded_media_type(&asset.kind, &representation.media_type)
+            })
+            .collect::<Vec<_>>();
+        candidates.sort_by(|left, right| {
+            (left.role != "playback")
+                .cmp(&(right.role != "playback"))
+                .then_with(|| {
+                    embedded_media_priority(&left.media_type)
+                        .cmp(&embedded_media_priority(&right.media_type))
+                })
+                .then_with(|| left.path.cmp(&right.path))
+        });
+        let Some(representation) = candidates.first().copied() else {
+            html_embed_loss(
+                report,
+                &asset_id,
+                "it has no allowlisted browser media representation",
+            );
+            continue;
+        };
+        let Ok(bytes) = usize::try_from(representation.bytes) else {
+            html_embed_loss(
+                report,
+                &asset_id,
+                "its declared byte length is not representable",
+            );
+            continue;
+        };
+        if bytes > MAX_HTML_EMBEDDED_ASSET_BYTES {
+            html_embed_loss(
+                report,
+                &asset_id,
+                "it exceeds the 8 MiB per-asset HTML limit",
+            );
+            continue;
+        }
+        if total_bytes.saturating_add(bytes) > MAX_HTML_EMBEDDED_TOTAL_BYTES {
+            html_embed_loss(
+                report,
+                &asset_id,
+                "it exceeds the 24 MiB total HTML media budget",
+            );
+            continue;
+        }
+        let data = match read_asset_representation(
+            package,
+            &asset_id,
+            &representation.path,
+            MAX_HTML_EMBEDDED_ASSET_BYTES,
+        ) {
+            Ok(data) => data,
+            Err(error) => {
+                html_embed_loss(
+                    report,
+                    &asset_id,
+                    &format!("its representation could not be verified: {error}"),
+                );
+                continue;
+            }
+        };
+        if !safe_embedded_payload(&representation.media_type, &data) {
+            html_embed_loss(
+                report,
+                &asset_id,
+                "its bytes failed the media signature or static SVG safety policy",
+            );
+            continue;
+        }
+        total_bytes += data.len();
+        embedded.insert(
+            asset_id,
+            EmbeddedHtmlAsset {
+                media_type: representation.media_type.clone(),
+                data_url: format!(
+                    "data:{};base64,{}",
+                    representation.media_type,
+                    base64_encode(&data)
+                ),
+            },
+        );
+    }
+    embedded
+}
+
+fn html_primary_asset_ids(document: &Document) -> BTreeSet<String> {
+    fn visit_inlines(nodes: &[Inline], ids: &mut BTreeSet<String>) {
+        for node in nodes {
+            match node {
+                Inline::Image { asset_id, .. } => {
+                    ids.insert(asset_id.clone());
+                }
+                Inline::Emphasis { children }
+                | Inline::Strong { children }
+                | Inline::Link { children, .. }
+                | Inline::CrossReference { children, .. } => visit_inlines(children, ids),
+                _ => {}
+            }
+        }
+    }
+    fn visit_blocks(blocks: &[Block], ids: &mut BTreeSet<String>) {
+        for block in blocks {
+            match block {
+                Block::Heading { children, .. } | Block::Paragraph { children } => {
+                    visit_inlines(children, ids);
+                }
+                Block::Quote { children } | Block::Callout { children, .. } => {
+                    visit_blocks(children, ids);
+                }
+                Block::List { items, .. } => {
+                    for item in items {
+                        visit_blocks(&item.blocks, ids);
+                    }
+                }
+                Block::Media {
+                    label, asset_id, ..
+                } => {
+                    ids.insert(asset_id.clone());
+                    visit_inlines(label, ids);
+                }
+                Block::Diagram { label, .. }
+                | Block::Chart { label, .. }
+                | Block::Attachment { label, .. } => visit_inlines(label, ids),
+                _ => {}
+            }
+        }
+    }
+
+    let mut ids = BTreeSet::new();
+    visit_blocks(&document.blocks, &mut ids);
+    for blocks in document.footnotes.values() {
+        visit_blocks(blocks, &mut ids);
+    }
+    ids
+}
+
+fn allowed_embedded_media_type(kind: &str, media_type: &str) -> bool {
+    match kind {
+        "image" => matches!(
+            media_type,
+            "image/png" | "image/jpeg" | "image/webp" | "image/avif" | "image/svg+xml"
+        ),
+        "audio" => matches!(
+            media_type,
+            "audio/ogg" | "audio/mpeg" | "audio/wav" | "audio/mp4"
+        ),
+        "video" => matches!(media_type, "video/webm" | "video/mp4" | "video/quicktime"),
+        _ => false,
+    }
+}
+
+fn embedded_media_priority(media_type: &str) -> usize {
+    match media_type {
+        "image/avif" => 0,
+        "image/webp" => 1,
+        "image/png" => 2,
+        "image/jpeg" => 3,
+        "image/svg+xml" => 4,
+        "video/webm" | "audio/ogg" => 0,
+        "video/mp4" | "audio/mp4" => 1,
+        "audio/mpeg" => 2,
+        "audio/wav" | "video/quicktime" => 3,
+        _ => usize::MAX,
+    }
+}
+
+fn safe_embedded_payload(media_type: &str, data: &[u8]) -> bool {
+    match media_type {
+        "image/png" => data.starts_with(b"\x89PNG\r\n\x1a\n"),
+        "image/jpeg" => data.starts_with(&[0xff, 0xd8, 0xff]),
+        "image/webp" => data.len() >= 12 && data.starts_with(b"RIFF") && &data[8..12] == b"WEBP",
+        "image/avif" => {
+            data.len() >= 12
+                && &data[4..8] == b"ftyp"
+                && (&data[8..12] == b"avif" || &data[8..12] == b"avis")
+        }
+        "image/svg+xml" => safe_static_svg(data),
+        "audio/ogg" => data.starts_with(b"OggS"),
+        "audio/mpeg" => {
+            data.starts_with(b"ID3")
+                || data
+                    .get(..2)
+                    .is_some_and(|prefix| prefix[0] == 0xff && prefix[1] & 0xe0 == 0xe0)
+        }
+        "audio/wav" => data.len() >= 12 && data.starts_with(b"RIFF") && &data[8..12] == b"WAVE",
+        "audio/mp4" | "video/mp4" | "video/quicktime" => data.len() >= 12 && &data[4..8] == b"ftyp",
+        "video/webm" => data.starts_with(&[0x1a, 0x45, 0xdf, 0xa3]),
+        _ => false,
+    }
+}
+
+fn safe_static_svg(data: &[u8]) -> bool {
+    let Ok(source) = std::str::from_utf8(data) else {
+        return false;
+    };
+    if source.contains(['\0', '&', '\\']) {
+        return false;
+    }
+    let mut body = source.trim_start_matches('\u{feff}').trim_start();
+    if body.starts_with("<?xml") {
+        let Some((_, rest)) = body.split_once("?>") else {
+            return false;
+        };
+        body = rest.trim_start();
+    }
+    let lower = body.to_ascii_lowercase();
+    let Some(root_tail) = lower.strip_prefix("<svg") else {
+        return false;
+    };
+    if !root_tail
+        .chars()
+        .next()
+        .is_some_and(|character| character.is_whitespace() || character == '>')
+    {
+        return false;
+    }
+    for marker in [
+        "<!doctype",
+        "<!entity",
+        "<?",
+        "<script",
+        "<foreignobject",
+        "<iframe",
+        "<object",
+        "<embed",
+        "<audio",
+        "<video",
+        "<image",
+        "<use",
+        "<a ",
+        "<style",
+        "<animate",
+        "<set",
+        "<discard",
+        "style=",
+        "href=",
+        "xlink:href",
+        "url(",
+        "@import",
+        "javascript:",
+        "data:",
+        "file:",
+        "blob:",
+        "onabort",
+        "onactivate",
+        "onbegin",
+        "onclick",
+        "onend",
+        "onerror",
+        "onfocus",
+        "onload",
+        "onrepeat",
+        "onresize",
+        "onscroll",
+        "onunload",
+        "onzoom",
+    ] {
+        if lower.contains(marker) {
+            return false;
+        }
+    }
+    let compact = lower
+        .chars()
+        .filter(|character| !character.is_ascii_whitespace())
+        .collect::<String>();
+    for marker in [
+        "style=",
+        "href=",
+        "xlink:href=",
+        "url(",
+        "javascript:",
+        "data:",
+        "file:",
+        "blob:",
+    ] {
+        if compact.contains(marker) {
+            return false;
+        }
+    }
+    let external_check = lower
+        .replace("http://www.w3.org/2000/svg", "")
+        .replace("https://www.w3.org/2000/svg", "")
+        .replace("http://www.w3.org/1999/xlink", "")
+        .replace("https://www.w3.org/1999/xlink", "");
+    !external_check.contains("http://")
+        && !external_check.contains("https://")
+        && !external_check.contains("//")
+}
+
+fn base64_encode(data: &[u8]) -> String {
+    const DIGITS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut output = String::with_capacity(data.len().div_ceil(3) * 4);
+    for chunk in data.chunks(3) {
+        let first = chunk[0];
+        let second = chunk.get(1).copied().unwrap_or(0);
+        let third = chunk.get(2).copied().unwrap_or(0);
+        output.push(DIGITS[(first >> 2) as usize] as char);
+        output.push(DIGITS[(((first & 0x03) << 4) | (second >> 4)) as usize] as char);
+        if chunk.len() > 1 {
+            output.push(DIGITS[(((second & 0x0f) << 2) | (third >> 6)) as usize] as char);
+        } else {
+            output.push('=');
+        }
+        if chunk.len() > 2 {
+            output.push(DIGITS[(third & 0x3f) as usize] as char);
+        } else {
+            output.push('=');
+        }
+    }
+    output
+}
+
+fn html_embed_loss(report: &mut LossReport, asset_id: &str, reason: &str) {
+    report.warning(
+        "NMD-E103",
+        format!("Asset {asset_id:?} was not embedded because {reason}."),
+        None,
+        Some(format!("asset:{asset_id}")),
+        "A safe static placeholder is emitted and the package remains authoritative.",
+    );
+}
+
+fn html_asset(output: &mut String, report: &mut LossReport, asset: HtmlAssetRender<'_>) {
+    if let Some(embedded_asset) = asset.embedded.get(asset.asset_id) {
+        match asset.kind {
+            "image" if allowed_embedded_media_type("image", &embedded_asset.media_type) => {
+                let escaped_alt = if asset.decorative {
+                    String::new()
+                } else {
+                    html_escape(asset.plain_label)
+                };
+                output.push_str(&format!(
+                    "<figure class=\"asset embedded-image\"><img src=\"{}\" alt=\"{}\"{}><figcaption>{}</figcaption></figure>",
+                    embedded_asset.data_url,
+                    escaped_alt,
+                    if asset.decorative { " aria-hidden=true" } else { "" },
+                    asset.label
+                ));
+                return;
+            }
+            "audio" if allowed_embedded_media_type("audio", &embedded_asset.media_type) => {
+                output.push_str(&format!(
+                    "<figure class=\"asset embedded-audio\"><audio controls preload=metadata src=\"{}\">Audio: {}</audio><figcaption>{}</figcaption></figure>",
+                    embedded_asset.data_url,
+                    html_escape(asset.plain_label),
+                    asset.label
+                ));
+                return;
+            }
+            "video" if allowed_embedded_media_type("video", &embedded_asset.media_type) => {
+                output.push_str(&format!(
+                    "<figure class=\"asset embedded-video\"><video controls preload=metadata src=\"{}\">Video: {}</video><figcaption>{}</figcaption></figure>",
+                    embedded_asset.data_url,
+                    html_escape(asset.plain_label),
+                    asset.label
+                ));
+                return;
+            }
+            _ => {}
+        }
+    }
     output.push_str(&format!(
         "<figure class=asset><div class=asset-placeholder><span>{}</span><code>asset:{}</code></div><figcaption>{}</figcaption></figure>",
-        html_escape(kind),
-        html_escape(asset_id),
-        label
+        html_escape(asset.kind),
+        html_escape(asset.asset_id),
+        asset.label
     ));
-    html_asset_loss(report, path, asset_id, manifest);
+    html_asset_loss(report, asset.path, asset.asset_id, asset.manifest);
 }
 
 fn html_asset_loss(
@@ -2118,6 +3018,28 @@ fn escape_markdown(value: &str) -> String {
     escape_chars(value, r#"\*_`[]<>#"#)
 }
 
+fn markdown_fence(text: &str) -> String {
+    let mut longest = 0_usize;
+    let mut current = 0_usize;
+    for character in text.chars() {
+        if character == '`' {
+            current += 1;
+            longest = longest.max(current);
+        } else {
+            current = 0;
+        }
+    }
+    "`".repeat(3_usize.max(longest.saturating_add(1)))
+}
+
+fn safe_markdown_info(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'+'))
+}
+
 fn escape_chars(value: &str, special: &str) -> String {
     let mut output = String::new();
     for character in value.chars() {
@@ -2172,6 +3094,19 @@ fn media_name(kind: MediaKind) -> &'static str {
 
 fn required(args: &mut Vec<String>, name: &str) -> Result<String, CompatError> {
     option(args, name)?.ok_or_else(|| CompatError::Usage(format!("Missing {name}.")))
+}
+
+fn flag(args: &mut Vec<String>, name: &str) -> Result<bool, CompatError> {
+    let Some(index) = args.iter().position(|argument| argument == name) else {
+        return Ok(false);
+    };
+    args.remove(index);
+    if args.iter().any(|argument| argument == name) {
+        return Err(CompatError::Usage(format!(
+            "Flag {name} may be provided only once."
+        )));
+    }
+    Ok(true)
 }
 
 fn option(args: &mut Vec<String>, name: &str) -> Result<Option<String>, CompatError> {
@@ -2269,7 +3204,7 @@ fn op(error: impl std::fmt::Display) -> CompatError {
 }
 
 const HTML_STYLE: &str = r#"
-:root{color-scheme:light dark;--paper:#fbfaf6;--ink:#191817;--muted:#66615b;--line:#ddd8cf;--accent:#6941c6}*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:18px/1.65 ui-serif,Georgia,serif}main{width:min(74ch,calc(100% - 2rem));margin:4rem auto 8rem}h1,h2,h3,h4,h5,h6{line-height:1.15;margin:2em 0 .6em;font-family:ui-sans-serif,system-ui,sans-serif}h1{font-size:clamp(2.4rem,7vw,4.8rem)}a{color:var(--accent)}code,pre{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}pre{overflow:auto;padding:1rem;border:1px solid var(--line);border-radius:.5rem}blockquote{margin:2rem 0;padding:.25rem 0 .25rem 1.25rem;border-left:.25rem solid var(--accent);color:var(--muted)}.metadata{display:grid;grid-template-columns:max-content 1fr;gap:.25rem 1rem;padding:1rem;border:1px solid var(--line);border-radius:.5rem;font-family:ui-sans-serif,system-ui,sans-serif;font-size:.85rem}.metadata dt{font-weight:700}.metadata dd{margin:0}.toc,.callout,.asset{margin:2rem 0;padding:1.25rem;border:1px solid var(--line);border-radius:.75rem}.callout{border-left:.35rem solid var(--accent)}.asset-placeholder{min-height:9rem;display:grid;place-content:center;gap:.5rem;text-align:center;background:color-mix(in srgb,var(--accent) 8%,transparent);border-radius:.4rem;text-transform:capitalize}.asset-placeholder code,.asset-ref{color:var(--muted);text-transform:none}.inline-image{display:inline-flex;padding:.1rem .45rem;border:1px solid var(--line);border-radius:.3rem}.footnotes{margin-top:5rem;padding-top:1rem;border-top:1px solid var(--line)}@media(prefers-color-scheme:dark){:root{--paper:#171614;--ink:#f4f1eb;--muted:#b8b1a8;--line:#3d3934;--accent:#b79cff}}@media(max-width:600px){body{font-size:16px}main{margin-top:2rem}}
+:root{color-scheme:light dark;--paper:#fbfaf6;--ink:#191817;--muted:#66615b;--line:#ddd8cf;--accent:#6941c6}*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:18px/1.65 ui-serif,Georgia,serif}main{width:min(74ch,calc(100% - 2rem));margin:4rem auto 8rem}h1,h2,h3,h4,h5,h6{line-height:1.15;margin:2em 0 .6em;font-family:ui-sans-serif,system-ui,sans-serif}h1{font-size:clamp(2.4rem,7vw,4.8rem)}a{color:var(--accent)}code,pre{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}pre{overflow:auto;padding:1rem;border:1px solid var(--line);border-radius:.5rem}blockquote{margin:2rem 0;padding:.25rem 0 .25rem 1.25rem;border-left:.25rem solid var(--accent);color:var(--muted)}.metadata{display:grid;grid-template-columns:max-content 1fr;gap:.25rem 1rem;padding:1rem;border:1px solid var(--line);border-radius:.5rem;font-family:ui-sans-serif,system-ui,sans-serif;font-size:.85rem}.metadata dt{font-weight:700}.metadata dd{margin:0}.toc,.callout,.asset{margin:2rem 0;padding:1.25rem;border:1px solid var(--line);border-radius:.75rem}.callout{border-left:.35rem solid var(--accent)}.asset-placeholder{min-height:9rem;display:grid;place-content:center;gap:.5rem;text-align:center;background:color-mix(in srgb,var(--accent) 8%,transparent);border-radius:.4rem;text-transform:capitalize}.asset-placeholder code,.asset-ref{color:var(--muted);text-transform:none}.inline-image{display:inline-flex;max-width:100%;height:auto;padding:.1rem .45rem;border:1px solid var(--line);border-radius:.3rem}.embedded-image img,.embedded-video video{display:block;max-width:100%;height:auto;margin:auto}.embedded-audio audio{width:100%}.footnotes{margin-top:5rem;padding-top:1rem;border-top:1px solid var(--line)}@media(prefers-color-scheme:dark){:root{--paper:#171614;--ink:#f4f1eb;--muted:#b8b1a8;--line:#3d3934;--accent:#b79cff}}@media(max-width:600px){body{font-size:16px}main{margin-top:2rem}}
 "#;
 
 #[cfg(test)]
@@ -2327,11 +3262,87 @@ mod tests {
         };
         let mut report =
             LossReport::new("export", Path::new("in.nmt"), Path::new("out.html"), None);
-        let html = to_html(&document, None, &mut report);
+        let html = to_html(&document, None, None, &mut report);
         assert!(!html.contains("<script>"));
         assert!(html.contains("&lt;script&gt;"));
         assert!(!html.contains("src=\"http"));
         assert!(html.contains("default-src 'none'"));
+        assert!(html.contains("script-src 'none'"));
+        assert!(html.contains("connect-src 'none'"));
+        assert!(html.contains("name=referrer content=no-referrer"));
+    }
+
+    #[test]
+    fn markdown_export_chooses_a_non_colliding_fence_and_reports_bad_info() {
+        let document = Document {
+            model_version: "0.1".into(),
+            metadata: BTreeMap::new(),
+            blocks: vec![Block::CodeBlock {
+                language: Some("bad token`".into()),
+                text: "before\n``````\nafter".into(),
+            }],
+            footnotes: BTreeMap::new(),
+        };
+        let mut report = LossReport::new("export", Path::new("in.nmt"), Path::new("out.md"), None);
+        let markdown = to_markdown(&document, &mut report);
+        assert!(markdown.starts_with("```````\nbefore"));
+        assert!(markdown.ends_with("after\n```````\n"));
+        assert!(report.items.iter().any(|item| item.code == "NMD-E025"));
+    }
+
+    #[test]
+    fn html_media_preflight_accepts_signatures_and_rejects_active_svg() {
+        assert_eq!(base64_encode(b"NotMarkdown"), "Tm90TWFya2Rvd24=");
+        assert!(safe_embedded_payload(
+            "image/png",
+            b"\x89PNG\r\n\x1a\nfixture"
+        ));
+        assert!(safe_static_svg(
+            br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#fff"/></svg>"##
+        ));
+        for unsafe_svg in [
+            br#"<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>"#.as_slice(),
+            br#"<svg xmlns="http://www.w3.org/2000/svg" onload = "alert(1)"></svg>"#.as_slice(),
+            br#"<svg xmlns="http://www.w3.org/2000/svg"><image href = "https://example.test/a.png"/></svg>"#.as_slice(),
+            br#"<!DOCTYPE svg [<!ENTITY x SYSTEM "file:///etc/passwd">]><svg></svg>"#.as_slice(),
+            br#"<svg xmlns="http://www.w3.org/2000/svg"><style>@import url(https://example.test/x.css)</style></svg>"#.as_slice(),
+        ] {
+            assert!(!safe_static_svg(unsafe_svg));
+        }
+    }
+
+    #[test]
+    fn portable_migration_keys_reject_platform_traps_and_unicode_drift() {
+        assert_eq!(
+            portable_relative_path_key(Path::new("Guide/ReadMe.nmdoc")).expect("portable key"),
+            portable_relative_path_key(Path::new("guide/readme.nmdoc")).expect("folded key")
+        );
+        assert_eq!(
+            portable_relative_path_key(Path::new("Ｆoo.nmdoc")).expect("compatibility key"),
+            portable_relative_path_key(Path::new("foo.nmdoc")).expect("ASCII key")
+        );
+        assert_eq!(
+            portable_relative_path_key(Path::new("Straße.nmdoc")).expect("full fold key"),
+            portable_relative_path_key(Path::new("STRASSE.nmdoc")).expect("expanded fold key")
+        );
+        assert!(portable_relative_path_key(Path::new("Cafe\u{301}.nmdoc")).is_err());
+        for invalid in [
+            "CON.nmdoc",
+            "prn.txt",
+            "aux",
+            "NUL.data",
+            "COM1.nmdoc",
+            "lpt9.anything",
+            "bad?.nmdoc",
+            "bad:name.nmdoc",
+            "trailing.",
+            "trailing ",
+        ] {
+            assert!(
+                portable_relative_path_key(Path::new(invalid)).is_err(),
+                "accepted {invalid}"
+            );
+        }
     }
 
     #[test]
@@ -2353,7 +3364,7 @@ mod tests {
         };
         let mut report =
             LossReport::new("export", Path::new("in.nmt"), Path::new("out.html"), None);
-        let html = to_html(&document, None, &mut report);
+        let html = to_html(&document, None, None, &mut report);
         assert!(!html.contains("<script>"));
         assert!(html.contains("&lt;script&gt;"));
         assert!(html.contains("Mermaid source · static fallback"));
@@ -2364,10 +3375,8 @@ mod tests {
 
     #[test]
     fn markdown_import_adopts_drawio_svg_and_plain_source() {
-        let directory = env::temp_dir().join(format!(
-            "notmarkdown-drawio-import-{}",
-            std::process::id()
-        ));
+        let directory =
+            env::temp_dir().join(format!("notmarkdown-drawio-import-{}", std::process::id()));
         let _ = fs::remove_dir_all(&directory);
         fs::create_dir_all(&directory).expect("create fixture directory");
         fs::write(
@@ -2377,6 +3386,9 @@ mod tests {
         .expect("write draw.io SVG");
         fs::write(directory.join("editable.drawio"), b"<mxfile></mxfile>")
             .expect("write draw.io source");
+        let canonical_directory = directory
+            .canonicalize()
+            .expect("canonical fixture directory");
 
         let mut report = LossReport::new(
             "import",
@@ -2385,7 +3397,7 @@ mod tests {
             Some("github"),
         );
         let (document, assets) = {
-            let mut importer = Importer::new(&directory, &mut report);
+            let mut importer = Importer::new(&canonical_directory, &mut report);
             let document = importer.document(
                 "![Architecture](architecture.drawio.svg)\n\n[Editable source](editable.drawio)\n",
             );

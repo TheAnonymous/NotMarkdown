@@ -27,19 +27,33 @@ intellijPlatform {
         id = "org.notmarkdown.intellij"
         name = "NotMarkdown"
         version = project.version.toString()
-        description = "Deterministic NotMarkdown source support and package inspection."
+        description = """
+            <p>Deterministic NotMarkdown source support and safe package inspection.</p>
+            <ul>
+              <li><code>.nmt</code> and <code>.nmdoc</code> file types</li>
+              <li>Diagnostics, completion, hover, and structure through the shared LSP</li>
+              <li>Explicit package inspection and complete verification actions</li>
+            </ul>
+            <p>Documents are never executed and no network access is required.</p>
+        """.trimIndent()
         ideaVersion {
             sinceBuild = "261"
         }
         vendor {
             name = "NotMarkdown"
-            url = "https://notmarkdown.org"
+            url = "https://theanonymous.github.io/NotMarkdown/"
         }
     }
 }
 
 tasks {
     patchPluginXml {
-        changeNotes = "Initial source language service and package inspection slice."
+        changeNotes = """
+            <ul>
+              <li>Initial NotMarkdown language-service integration.</li>
+              <li>Safe package inspection and complete verification actions.</li>
+              <li>Exact Mermaid, Vega-Lite, and draw.io source support from the shared toolchain.</li>
+            </ul>
+        """.trimIndent()
     }
 }

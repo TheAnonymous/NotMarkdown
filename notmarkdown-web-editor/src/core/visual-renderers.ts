@@ -27,6 +27,7 @@ export class VisualRenderBudget {
   private bytes = 0;
 
   reserve(source: string): boolean {
+    if (source.length > 1024 * 1024) return false;
     const bytes = new TextEncoder().encode(source).byteLength;
     if (this.count >= 32 || this.bytes + bytes > 1024 * 1024) return false;
     this.count += 1;

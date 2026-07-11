@@ -104,7 +104,8 @@ export function DocumentEditor({
           mediaView(node, "audio", assetUrls, assets, onLoadAsset),
         video: (node) =>
           mediaView(node, "video", assetUrls, assets, onLoadAsset),
-        static_visual: (node) => visualNodeView(node, visualBudget),
+        static_visual: (node, editorView, getPos) =>
+          visualNodeView(node, visualBudget, editorView, getPos),
         table_of_contents: (node) => tableOfContentsView(node, document)
       },
       dispatchTransaction(transaction) {

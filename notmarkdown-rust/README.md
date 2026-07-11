@@ -98,6 +98,8 @@ The first migration slice works entirely offline and does not require GitHub:
 ```sh
 notmarkdown import README.md --dialect commonmark --to nmdoc \
   --output README.nmdoc --loss-report import-loss.json
+notmarkdown import docs --recursive --dialect github --to nmdoc \
+  --output migrated-docs
 notmarkdown export README.nmdoc --to markdown \
   --output README-export.md --loss-report markdown-loss.json
 notmarkdown export README.nmdoc --to html \
@@ -121,6 +123,20 @@ metadata-free subset:
   native static diagrams. Plain local `.drawio`/`.dio` links retain their
   label and editable source as embedded asset links.
 
+Directory import is deterministic and bounded to 10,000 Markdown files and 32
+directory levels. It walks `.md` and `.markdown` files in sorted order,
+preserves their relative directory structure, resolves each document's local
+assets from that document's own directory, and rejects symbolic links and
+portable path collisions. Portable paths reject Windows device names, illegal
+characters, trailing dots/spaces, and overlong components; collision keys use
+NFC validation plus NFKC and full Unicode case folding so macOS/Windows copies
+fail closed instead of overwriting another document. Work is written to a
+sibling staging directory and the output tree is renamed into place only if
+every document succeeds.
+Successful trees always contain `migration-loss-report.json`; a failed tree is
+not committed and instead writes a sibling `.loss.json` report. Optional
+`--loss-report` adds a second explicit report outside the output tree.
+
 The reader is bounded to 8 MiB, 100,000 lines, 100,000 blocks, 16 levels of
 inline nesting, and 512 images. It never fetches remote images and never follows
 a local image path outside the Markdown file's directory. Ambiguous or
@@ -139,8 +155,24 @@ inert, responsive file: CSS is inline, text and attributes are escaped, there
 are no scripts or remote resources, and embedded assets become labeled static
 placeholders with `NMD-E100` entries. Mermaid and Vega-Lite fences become
 escaped source fallbacks with explicit `NMD-E104`/`NMD-E105` entries. This
-initial safe export intentionally
-does not put potentially very large media into data URLs.
+safe exporter embeds verified PNG, JPEG, WebP, AVIF, and strictly preflighted
+static SVG representations as base64 `data:` URLs. Allowlisted audio and video
+representations use native controls, `preload=metadata`, and never autoplay.
+Embedding is capped at 8 MiB per asset, 24 MiB total, and 256 assets. Assets
+that exceed a limit, fail their signature/SHA-256, use another MIME type, or
+contain active SVG features remain visible as placeholders with explicit
+`NMD-E103`/`NMD-E100` losses.
+
+Plain Markdown cannot carry embedded package bytes. The exporter deliberately
+keeps stable `asset:` references and reports each one as `NMD-E022`; it does not
+silently create a companion directory. Use `notmarkdown unpack` when separate
+asset files are wanted.
+
+Markdown export chooses a backtick fence longer than every run in the source,
+so embedded fence-like text cannot terminate a block. Non-portable language
+tokens are omitted with `NMD-E025`, never silently. Static HTML declares a
+deny-by-default CSP with scripts, connections, frames, workers, objects, forms,
+and referrers disabled. It is a viewer artifact, not an executable document.
 
 All conversion outputs and loss reports use create-new semantics: existing
 files are never overwritten. `notmarkdown git install` only edits the selected

@@ -75,6 +75,8 @@
     "release/out",
     "release/out/**",
     "*.tsbuildinfo",
+    "*.vsix",
+    "**/*.vsix",
     "*.log",
     "*.pyc",
     ".env",

@@ -1,0 +1,67 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /notmarkdown-reference-parser
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      reference-toolchain:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /notmarkdown-web-editor
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      studio:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /notmarkdown-vscode
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      vscode:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /integrations/desktop
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      desktop-node:
+        patterns: ["*"]
+
+  - package-ecosystem: cargo
+    directory: /notmarkdown-rust
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      rust:
+        patterns: ["*"]
+
+  - package-ecosystem: cargo
+    directory: /integrations/desktop/src-tauri
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      desktop-rust:
+        patterns: ["*"]
+
+  - package-ecosystem: gradle
+    directory: /notmarkdown-jetbrains
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

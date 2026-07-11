@@ -12,7 +12,11 @@ import type {
   Diagnostic,
   DocumentNode
 } from "@notmarkdown/reference-toolchain";
-import type { AssetData, ContainerProfile } from "./core/container";
+import type {
+  AssetData,
+  AssetRepresentationData,
+  ContainerProfile
+} from "./core/container";
 import {
   browserLaunchQueue,
   requireNotMarkdownFile,
@@ -96,7 +100,7 @@ export default function App() {
   const missingAssets = [...referencedAssets].filter(
     (id) => !assets.some((asset) => asset.id === id)
   );
-  const valid = diagnostics.length === 0;
+  const valid = !diagnostics.some((diagnostic) => diagnostic.severity === "error");
 
   useEffect(() => {
     assetsRef.current = assets;
@@ -116,16 +120,39 @@ export default function App() {
     setAssetVersion((value) => value + 1);
   }, []);
 
-  const loadAsset = useCallback(async (id: string): Promise<Uint8Array> => {
+  const loadAsset = useCallback(async (
+    id: string,
+    representationIndex?: number,
+    purpose: "preview" | "author" | "materialize" = "preview"
+  ): Promise<Uint8Array> => {
     const asset = assetsRef.current.find((candidate) => candidate.id === id);
     if (!asset) throw new Error("Unknown asset " + id + ".");
-    if (asset.data) return asset.data;
-    const { materializeAsset } = await import("./core/container");
-    const data = await materializeAsset(asset);
+    const {
+      assetRepresentations,
+      materializeRepresentation,
+      selectAssetRepresentationIndex
+    } = await import("./core/container");
+    const representations = assetRepresentations(asset);
+    const selectedIndex =
+      representationIndex ?? selectAssetRepresentationIndex(asset);
+    const representation = representations[selectedIndex];
+    if (!representation) throw new Error("Unknown asset representation.");
+    if (representation.data) return representation.data;
+    const data = await materializeRepresentation(asset, representation, purpose);
+    const current = assetsRef.current.find((candidate) => candidate.id === id);
+    const cached = current
+      ? cacheRepresentationIfCurrent(
+          current,
+          selectedIndex,
+          representation,
+          data
+        )
+      : undefined;
+    if (!cached) {
+      throw new Error("Asset representation changed while it was loading.");
+    }
     const next = assetsRef.current.map((candidate) =>
-      candidate.id === id && candidate.fingerprint === asset.fingerprint
-        ? { ...candidate, data }
-        : candidate
+      candidate.id === id ? cached : candidate
     );
     assetsRef.current = next;
     setAssets(next);
@@ -645,6 +672,7 @@ function useAssetUrls(assets: readonly AssetData[]) {
     const urls = new Map<string, string>();
     for (const asset of assets) {
       if (!asset.data) continue;
+      if (!["image", "audio", "video"].includes(asset.kind)) continue;
       urls.set(
         asset.id,
         URL.createObjectURL(
@@ -658,6 +686,72 @@ function useAssetUrls(assets: readonly AssetData[]) {
     };
   }, [assets]);
   return urls;
+}
+
+function cacheRepresentation(
+  asset: AssetData,
+  representationIndex: number,
+  data: Uint8Array
+): AssetData {
+  const current = asset.representations?.length
+    ? [...asset.representations]
+    : [
+        {
+          ...(asset.path ? { path: asset.path } : {}),
+          fileName: asset.fileName,
+          mediaType: asset.mediaType,
+          fingerprint: asset.fingerprint,
+          role: asset.role,
+          bytes: asset.bytes,
+          data: asset.data,
+          load: asset.load,
+          openStream: asset.openStream
+        }
+      ];
+  const representation = current[representationIndex];
+  if (!representation) return asset;
+  current[representationIndex] = { ...representation, data };
+  const selectedIndex = asset.representations?.findIndex(
+    (candidate) =>
+      candidate.fingerprint === asset.fingerprint &&
+      candidate.fileName === asset.fileName &&
+      candidate.mediaType === asset.mediaType
+  );
+  const selected = current[selectedIndex !== undefined && selectedIndex >= 0 ? selectedIndex : 0]!;
+  return { ...asset, ...selected, representations: current };
+}
+
+/**
+ * Commits deferred bytes only while the exact representation selected before
+ * the await is still present at the same index. This prevents a slow range
+ * read from overwriting a replacement chosen while that read was in flight.
+ */
+export function cacheRepresentationIfCurrent(
+  asset: AssetData,
+  representationIndex: number,
+  expected: AssetRepresentationData,
+  data: Uint8Array
+): AssetData | undefined {
+  const current = asset.representations?.length
+    ? asset.representations[representationIndex]
+    : representationIndex === 0
+      ? asset
+      : undefined;
+  if (!current || !sameRepresentation(current, expected)) return undefined;
+  return cacheRepresentation(asset, representationIndex, data);
+}
+
+function sameRepresentation(
+  current: AssetRepresentationData,
+  expected: AssetRepresentationData
+): boolean {
+  return (
+    current.fingerprint === expected.fingerprint &&
+    (current.path ?? null) === (expected.path ?? null) &&
+    current.fileName === expected.fileName &&
+    current.mediaType === expected.mediaType &&
+    current.bytes === expected.bytes
+  );
 }
 
 function isSearchableMediaType(mediaType: string): boolean {

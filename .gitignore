@@ -8,6 +8,7 @@
 *.py[cod]
 *.tsbuildinfo
 *.log
+*.vsix
 .DS_Store
 Thumbs.db
 /release/out/

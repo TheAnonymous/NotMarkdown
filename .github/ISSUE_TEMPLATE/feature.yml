@@ -1,0 +1,30 @@
+name: Feature or compatibility proposal
+description: Propose a constrained format, tooling, or adoption improvement.
+title: "proposal: "
+labels: [proposal]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What concrete workflow is currently blocked?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: boundary
+    attributes:
+      label: Static-document boundary
+      description: Explain how this remains inert, deterministic, offline-correct, and constrained.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and migration
+      description: Include Markdown interoperability and graceful fallback behavior.

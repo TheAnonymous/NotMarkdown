@@ -15,3 +15,5 @@ notmarkdown-core = { path = "../notmarkdown-core" }
 notmarkdown-package = { path = "../notmarkdown-package" }
 serde.workspace = true
 serde_json.workspace = true
+unicode-casefold.workspace = true
+unicode-normalization.workspace = true

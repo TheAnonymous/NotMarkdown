@@ -20,6 +20,8 @@ ratatui = { version = "=0.30.2", default-features = false, features = ["crosster
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.150"
 sha2 = "=0.11.0"
+unicode-casefold = "=0.2.0"
+unicode-normalization = "=0.1.25"
 zip = { version = "=8.6.0", default-features = false, features = ["deflate-flate2-zlib-rs", "zstd"] }
 
 [profile.release]

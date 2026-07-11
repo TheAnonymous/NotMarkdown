@@ -388,7 +388,12 @@ mod tests {
             .iter()
             .find(|item| item["label"] == "!diagram")
             .expect("diagram completion");
-        assert!(diagram["insertText"].as_str().expect("snippet").contains("source: asset:"));
+        assert!(
+            diagram["insertText"]
+                .as_str()
+                .expect("snippet")
+                .contains("source: asset:")
+        );
         assert!(items.iter().any(|item| item["label"] == "```mermaid"));
         assert!(items.iter().any(|item| item["label"] == "```vega-lite"));
     }

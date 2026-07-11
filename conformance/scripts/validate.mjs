@@ -36,6 +36,19 @@ function repoPath(raw, location) {
   return target;
 }
 
+function isCanonicalTextFixture(fixture) {
+  const mediaType = fixture.mediaType?.toLowerCase();
+  return typeof mediaType === "string" && (
+    mediaType.startsWith("text/") ||
+    mediaType.endsWith("+json") ||
+    mediaType.endsWith("+xml") ||
+    mediaType === "application/json" ||
+    mediaType === "application/xml" ||
+    mediaType === "application/vnd.jgraph.mxfile" ||
+    mediaType === "image/svg+xml"
+  );
+}
+
 const suite = await json(suitePath);
 if (!suite) process.exitCode = 1;
 else {
@@ -95,8 +108,12 @@ else {
         if (target) {
           try {
             if (!(await stat(target)).isFile()) fail(fixtureLocation, "fixture is not a file");
+            const contents = await readFile(target);
+            if (isCanonicalTextFixture(fixture) && contents.includes(0x0d)) {
+              fail(fixtureLocation, "text fixture must use canonical LF line endings");
+            }
             if (fixture.sha256) {
-              const digest = createHash("sha256").update(await readFile(target)).digest("hex");
+              const digest = createHash("sha256").update(contents).digest("hex");
               if (digest !== fixture.sha256) fail(fixtureLocation, "sha256 does not match fixture");
             }
           } catch (error) {
@@ -120,4 +137,3 @@ if (failures.length) {
 } else {
   console.log(`Validated ${suite.cases.length} conformance cases and their fixtures.`);
 }
-

@@ -25,5 +25,8 @@ npm install
 npm run check
 ```
 
-The next plugin slice will bundle signed per-platform binaries and reuse the
-Studio Document/Package components for a full three-view custom editor.
+The current VSIX intentionally expects `notmarkdown` and `notmarkdown-lsp` on
+`PATH` (or in the configured paths). GitHub prerelease archives provide those
+tools separately. Bundling platform binaries and reusing the Studio
+Document/Package components for a full three-view custom editor remain future,
+separately signed distribution decisions.

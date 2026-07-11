@@ -34,10 +34,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
@@ -75,3 +75,24 @@ jobs:
       - name: Deploy GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Smoke-test deployed landing page and Studio
+        shell: bash
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          set -euo pipefail
+          for attempt in {1..12}; do
+            if curl --fail --silent --show-error --location "${PAGE_URL}" --output landing.html \
+              && curl --fail --silent --show-error --location "${PAGE_URL}studio/" --output studio.html; then
+              break
+            fi
+            if [[ "$attempt" == "12" ]]; then
+              echo "Pages did not become reachable in time" >&2
+              exit 1
+            fi
+            sleep 5
+          done
+          grep --fixed-strings "studio/index.html?embed=1" landing.html
+          grep --fixed-strings "Content-Security-Policy" studio.html
+          curl --fail --silent --show-error --head "${PAGE_URL}downloads/NotMarkdown-visuals-0.1.nmdoc"

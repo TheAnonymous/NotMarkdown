@@ -89,6 +89,9 @@ export function preflightVegaLite(
 }
 
 function preflightBounds(source: string): VisualPreflight {
+  if (source.length > MAX_VISUAL_BYTES) {
+    return { ok: false, code: "NMD-E104", message: "Visual source exceeds 256 KiB." };
+  }
   if (new TextEncoder().encode(source).byteLength > MAX_VISUAL_BYTES) {
     return { ok: false, code: "NMD-E104", message: "Visual source exceeds 256 KiB." };
   }

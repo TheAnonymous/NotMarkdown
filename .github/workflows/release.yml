@@ -1,0 +1,396 @@
+name: Release artifacts
+
+on:
+  push:
+    tags:
+      - "compatibility-kit-v*"
+    branches:
+      - main
+    paths:
+      - "release/release-trigger.json"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing compatibility-kit-v<semver> tag to validate
+        required: true
+        type: string
+      publish_prerelease:
+        description: Create a new immutable public prerelease
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    name: Validate release metadata
+    runs-on: ubuntu-24.04
+    outputs:
+      compatibility_version: ${{ steps.versions.outputs.compatibility_version }}
+      release_tag: ${{ steps.versions.outputs.release_tag }}
+      rust_version: ${{ steps.versions.outputs.rust_version }}
+      vscode_version: ${{ steps.versions.outputs.vscode_version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Validate component versions and tag
+        id: versions
+        shell: bash
+        env:
+          DISPATCH_TAG: ${{ inputs.release_tag }}
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_REF: ${{ github.ref }}
+          PUSH_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: |
+          arguments=(--root . --github-output "$GITHUB_OUTPUT")
+          if [[ -n "$PUSH_TAG" ]]; then
+            arguments+=(--tag "$PUSH_TAG")
+          elif [[ "$EVENT_NAME" == "push" && "$PUSH_REF" == "refs/heads/main" ]]; then
+            arguments+=(--trigger release/release-trigger.json)
+          else
+            arguments+=(--tag "$DISPATCH_TAG")
+          fi
+          python -B release/scripts/release_metadata.py "${arguments[@]}"
+
+  validate-toolchain:
+    name: Test Rust workspace and CLI release smoke
+    needs: metadata
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js for cross-implementation tests
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Build TypeScript reference parser
+        working-directory: notmarkdown-reference-parser
+        run: npm ci && npm run build
+
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.97.0 --profile minimal
+
+      - name: Test Rust workspace
+        working-directory: notmarkdown-rust
+        run: cargo +1.97.0 test --workspace --locked
+
+      - name: Build smoke-test CLI
+        working-directory: notmarkdown-rust
+        run: cargo +1.97.0 build --locked -p notmarkdown-cli
+
+      - name: Exercise import, export, deterministic pack, and verify
+        shell: bash
+        run: |
+          smoke_dir="$(mktemp -d)"
+          trap 'rm -rf "$smoke_dir"' EXIT
+          printf '# Release smoke\n\n1. alpha\n2. beta\n' > "$smoke_dir/input.md"
+          cli="$PWD/notmarkdown-rust/target/debug/notmarkdown"
+          "$cli" import "$smoke_dir/input.md" \
+            --dialect commonmark --to nmt \
+            --output "$smoke_dir/imported.nmt" \
+            --loss-report "$smoke_dir/import-loss.json"
+          "$cli" export "$smoke_dir/imported.nmt" \
+            --to markdown --output "$smoke_dir/exported.md" \
+            --loss-report "$smoke_dir/markdown-loss.json"
+          "$cli" export "$smoke_dir/imported.nmt" \
+            --to html --output "$smoke_dir/exported.html" \
+            --loss-report "$smoke_dir/html-loss.json"
+          "$cli" parse "$smoke_dir/imported.nmt" >/dev/null
+          "$cli" pack "$smoke_dir/imported.nmt" \
+            --profile modern --output "$smoke_dir/a.nmdoc"
+          "$cli" pack "$smoke_dir/imported.nmt" \
+            --profile modern --output "$smoke_dir/b.nmdoc"
+          cmp "$smoke_dir/a.nmdoc" "$smoke_dir/b.nmdoc"
+          "$cli" verify "$smoke_dir/a.nmdoc"
+
+  native:
+    name: Native tools (${{ matrix.target }})
+    needs: [metadata, validate-toolchain]
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - runner: macos-15
+            target: aarch64-apple-darwin
+          - runner: windows-2025
+            target: x86_64-pc-windows-msvc
+          - runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.97.0 --profile minimal
+          rustup target add --toolchain 1.97.0 "${{ matrix.target }}"
+
+      - name: Build native CLI, LSP, and terminal editor
+        working-directory: notmarkdown-rust
+        run: >-
+          cargo +1.97.0 build
+          --release
+          --locked
+          --target ${{ matrix.target }}
+          -p notmarkdown-cli
+          -p notmarkdown-lsp
+          -p notmarkdown-tui
+
+      - name: Package deterministic native archive
+        run: >-
+          python -B release/scripts/package_binaries.py
+          --target-dir notmarkdown-rust/target
+          --target "${{ matrix.target }}"
+          --version "${{ needs.metadata.outputs.rust_version }}"
+          --license LICENSE
+          --output-dir release-stage/native
+
+      - name: Upload native archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-${{ matrix.target }}
+          path: release-stage/native/*
+          if-no-files-found: error
+          retention-days: 14
+
+  source:
+    name: Deterministic source archives
+    needs: metadata
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Test release tooling
+        run: python -B -m unittest discover -s release/tests -v
+
+      - name: Build deterministic source archives
+        run: >-
+          python -B release/scripts/package_sources.py
+          --root .
+          --config release/release-config.json
+          --output-dir release-stage/source
+
+      - name: Verify source archives
+        run: python -B release/scripts/verify_release.py release-stage/source
+
+      - name: Upload source archives
+        uses: actions/upload-artifact@v7
+        with:
+          name: source-archives
+          path: release-stage/source/*
+          if-no-files-found: error
+          retention-days: 14
+
+  vscode:
+    name: VS Code extension
+    needs: metadata
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install extension dependencies
+        working-directory: notmarkdown-vscode
+        run: npm ci
+
+      - name: Check extension
+        working-directory: notmarkdown-vscode
+        run: npm run check
+
+      - name: Package VSIX
+        working-directory: notmarkdown-vscode
+        run: npm run package
+
+      - name: Verify VSIX payload
+        run: >-
+          python -B release/scripts/verify_vsix.py
+          notmarkdown-vscode/notmarkdown-vscode-${{ needs.metadata.outputs.vscode_version }}.vsix
+
+      - name: Upload VSIX
+        uses: actions/upload-artifact@v7
+        with:
+          name: vscode-extension
+          path: notmarkdown-vscode/notmarkdown-vscode-${{ needs.metadata.outputs.vscode_version }}.vsix
+          if-no-files-found: error
+          retention-days: 14
+
+  assemble:
+    name: Assemble, checksum, and attest
+    needs: [metadata, native, source, vscode]
+    runs-on: ubuntu-24.04
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Download native archives
+        uses: actions/download-artifact@v8
+        with:
+          pattern: native-*
+          path: release-stage/final
+          merge-multiple: true
+
+      - name: Download source archives
+        uses: actions/download-artifact@v8
+        with:
+          name: source-archives
+          path: release-stage/source
+
+      - name: Download VSIX
+        uses: actions/download-artifact@v8
+        with:
+          name: vscode-extension
+          path: release-stage/final
+
+      - name: Merge source assets
+        shell: bash
+        run: |
+          mv release-stage/source/SHA256SUMS release-stage/final/SOURCE-SHA256SUMS
+          find release-stage/source -maxdepth 1 -type f -exec mv {} release-stage/final/ \;
+
+      - name: Render package-manager manifests from final hashes
+        env:
+          RELEASE_TAG: ${{ needs.metadata.outputs.release_tag }}
+          RUST_VERSION: ${{ needs.metadata.outputs.rust_version }}
+        run: >-
+          python -B release/scripts/render_distribution.py
+          --artifacts-dir release-stage/final
+          --templates-dir integrations/package-managers/templates
+          --output-dir release-stage/rendered
+          --repository "${{ github.repository }}"
+          --version "$RUST_VERSION"
+          --tag "$RELEASE_TAG"
+
+      - name: Add rendered package-manager manifests
+        shell: bash
+        run: find release-stage/rendered -type f -exec cp {} release-stage/final/ \;
+
+      - name: Write final checksums
+        run: python -B release/scripts/write_checksums.py release-stage/final
+
+      - name: Verify checksum file
+        working-directory: release-stage/final
+        run: sha256sum --check SHA256SUMS
+
+      - name: Attest final release assets
+        if: >-
+          (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+          (github.event_name == 'workflow_dispatch' && inputs.publish_prerelease == true)
+        uses: actions/attest@v4
+        with:
+          subject-path: release-stage/final/*
+
+      - name: Upload complete release candidate
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-candidate-${{ needs.metadata.outputs.compatibility_version }}
+          path: release-stage/final/*
+          if-no-files-found: error
+          retention-days: 30
+
+  publish-prerelease:
+    name: Publish GitHub prerelease
+    needs: [metadata, assemble]
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish_prerelease == true)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Download complete release candidate
+        uses: actions/download-artifact@v8
+        with:
+          name: release-candidate-${{ needs.metadata.outputs.compatibility_version }}
+          path: release-stage/final
+
+      - name: Create immutable public prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.metadata.outputs.release_tag }}
+          RELEASE_TITLE: NotMarkdown Compatibility Kit ${{ needs.metadata.outputs.compatibility_version }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Refusing to mutate existing release $RELEASE_TAG; increment release_candidate" >&2
+            exit 1
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Refusing to move existing tag $RELEASE_TAG; increment release_candidate" >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" release-stage/final/* \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --latest=false \
+            --title "$RELEASE_TITLE" \
+            --notes-file release/RELEASE-NOTES.md

@@ -6,12 +6,14 @@ on:
       - "notmarkdown-rust/**"
       - "notmarkdown-reference-parser/**"
       - "conformance/**"
+      - ".gitattributes"
       - ".github/workflows/rust.yml"
   pull_request:
     paths:
       - "notmarkdown-rust/**"
       - "notmarkdown-reference-parser/**"
       - "conformance/**"
+      - ".gitattributes"
       - ".github/workflows/rust.yml"
 
 permissions:
@@ -30,19 +32,25 @@ jobs:
         working-directory: notmarkdown-rust
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js for cross-implementation tests
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 24
+          package-manager-cache: false
 
       - name: Build TypeScript reference parser
         working-directory: notmarkdown-reference-parser
         run: npm ci && npm run build
 
       - name: Install pinned Rust toolchain
-        run: rustup toolchain install 1.97.0 --profile minimal --component clippy
+        run: rustup toolchain install 1.97.0 --profile minimal --component clippy,rustfmt
+
+      - name: Check formatting
+        run: cargo +1.97.0 fmt --all -- --check
 
       - name: Test workspace
         run: cargo +1.97.0 test --workspace --locked

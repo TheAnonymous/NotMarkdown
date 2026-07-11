@@ -201,6 +201,47 @@ pub fn verify_all(package: &OpenedPackage) -> Result<usize, PackageError> {
     Ok(verified)
 }
 
+/// Read one explicitly selected representation into memory after enforcing a
+/// caller-provided limit and verifying its declared length and SHA-256. This
+/// is intended for bounded exporters and previews; bulk media should continue
+/// to use the streaming extraction APIs.
+pub fn read_asset_representation(
+    package: &OpenedPackage,
+    asset_id: &str,
+    representation_path: &str,
+    max_bytes: usize,
+) -> Result<Vec<u8>, PackageError> {
+    if max_bytes == 0 {
+        return Err(format_error("Representation byte limit must be positive."));
+    }
+    let asset = package
+        .manifest
+        .assets
+        .get(asset_id)
+        .ok_or_else(|| format_error(format!("Unknown asset {asset_id}.")))?;
+    let representation = asset
+        .representations
+        .iter()
+        .find(|representation| representation.path == representation_path)
+        .ok_or_else(|| {
+            format_error(format!(
+                "Asset {asset_id} has no representation {representation_path}."
+            ))
+        })?;
+    validate_path(&representation.path)?;
+    if representation.bytes > max_bytes as u64 {
+        return Err(format_error(format!(
+            "Representation {} exceeds its in-memory byte limit.",
+            representation.path
+        )));
+    }
+    let file = File::open(&package.path)?;
+    let mut archive = ZipArchive::new(file)?;
+    let bytes = read_small(&mut archive, &representation.path, max_bytes)?;
+    verify_representation_bytes(asset_id, representation, &bytes)?;
+    Ok(bytes)
+}
+
 /// Build the deterministic package-wide index from the verified document and
 /// its safe textual representations. The result is disposable and is never
 /// written back into the package.
@@ -1551,6 +1592,26 @@ mod tests {
                 .entries
                 .iter()
                 .any(|entry| entry.compression == "zstd")
+        );
+    }
+
+    #[test]
+    fn bounded_representation_reads_verify_bytes_and_enforce_the_caller_limit() {
+        let opened = open(example_path()).expect("open Node fixture");
+        let representation = &opened.manifest.assets["package-flow"].representations[0];
+        let bytes = read_asset_representation(
+            &opened,
+            "package-flow",
+            &representation.path,
+            usize::try_from(representation.bytes).expect("fixture size"),
+        )
+        .expect("read verified representation");
+        assert_eq!(bytes.len() as u64, representation.bytes);
+        assert!(
+            read_asset_representation(&opened, "package-flow", &representation.path, 1).is_err()
+        );
+        assert!(
+            read_asset_representation(&opened, "package-flow", "assets/missing.svg", 1024).is_err()
         );
     }
 

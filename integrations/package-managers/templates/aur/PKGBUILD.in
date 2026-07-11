@@ -1,0 +1,28 @@
+# Maintainer: NotMarkdown contributors
+pkgname=notmarkdown-bin
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc='CLI, terminal editor, and language server for NotMarkdown'
+arch=('x86_64' 'aarch64')
+url='https://theanonymous.github.io/NotMarkdown/'
+license=('MIT')
+provides=('notmarkdown')
+conflicts=('notmarkdown')
+options=('!strip')
+source_x86_64=("@FILENAME_LINUX_X64@::@URL_LINUX_X64@")
+source_aarch64=("@FILENAME_LINUX_ARM64@::@URL_LINUX_ARM64@")
+sha256sums_x86_64=('@SHA256_LINUX_X64@')
+sha256sums_aarch64=('@SHA256_LINUX_ARM64@')
+
+package() {
+  local target
+  case "$CARCH" in
+    x86_64) target='x86_64-unknown-linux-gnu' ;;
+    aarch64) target='aarch64-unknown-linux-gnu' ;;
+  esac
+  local root="notmarkdown-tools-${pkgver}-${target}"
+  install -Dm755 "${root}/notmarkdown" "${pkgdir}/usr/bin/notmarkdown"
+  install -Dm755 "${root}/notmarkdown-lsp" "${pkgdir}/usr/bin/notmarkdown-lsp"
+  install -Dm755 "${root}/notmd-tui" "${pkgdir}/usr/bin/notmd-tui"
+  install -Dm644 "${root}/LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}

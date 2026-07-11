@@ -2,11 +2,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { DocumentNode } from "@notmarkdown/reference-toolchain";
 import { sanitizeSvg } from "../core/visual-renderers";
 import {
+  assertRepresentationLoadable,
+  assetRepresentations,
   collectAssetIds,
   inferKind,
   inferMediaType,
   inferRole,
+  selectAssetRepresentationIndex,
   type AssetData,
+  type AssetRepresentationData,
   type ContainerProfile
 } from "../core/container";
 
@@ -19,7 +23,11 @@ interface Props {
   profile: ContainerProfile;
   onProfileChange: (profile: ContainerProfile) => void;
   onAssetsChange: (assets: AssetData[]) => void;
-  onLoadAsset: (id: string) => Promise<Uint8Array>;
+  onLoadAsset: (
+    id: string,
+    representationIndex?: number,
+    purpose?: "preview" | "author" | "materialize"
+  ) => Promise<Uint8Array>;
   onMetadataChange: (key: string, value: string) => void;
 }
 
@@ -38,16 +46,27 @@ export function PackageView({
   const [loadError, setLoadError] = useState<string>();
   const input = useRef<HTMLInputElement>(null);
   const referenced = useMemo(() => collectAssetIds(document), [document]);
-  const previewable = assets.filter((asset) =>
-    ["image", "audio", "video"].includes(asset.kind)
+  const previewable = assets.filter(
+    (asset) =>
+      ["image", "audio", "video"].includes(asset.kind) ||
+      (asset.kind === "diagram" && asset.mediaType === "image/svg+xml")
   );
-  const totalBytes = assets.reduce((sum, asset) => sum + asset.bytes, 0);
+  const totalBytes = assets.reduce(
+    (sum, asset) =>
+      sum + assetRepresentations(asset).reduce((subtotal, item) => subtotal + item.bytes, 0),
+    0
+  );
 
-  const load = async (asset: AssetData): Promise<Uint8Array | undefined> => {
-    setLoadingId(asset.id);
+  const load = async (
+    asset: AssetData,
+    representationIndex = selectAssetRepresentationIndex(asset),
+    purpose: "preview" | "author" | "materialize" = "preview"
+  ): Promise<Uint8Array | undefined> => {
+    const key = asset.id + ":" + representationIndex;
+    setLoadingId(key);
     setLoadError(undefined);
     try {
-      return await onLoadAsset(asset.id);
+      return await onLoadAsset(asset.id, representationIndex, purpose);
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : String(error));
       return undefined;
@@ -56,36 +75,117 @@ export function PackageView({
     }
   };
 
-  const extract = async (asset: AssetData) => {
-    const data = asset.data ?? (await load(asset));
+  const extract = async (
+    asset: AssetData,
+    representation: AssetRepresentationData,
+    representationIndex: number
+  ) => {
+    const data =
+      representation.data ??
+      (await load(asset, representationIndex, "materialize"));
     if (!data) return;
     download(
-      new Blob([toArrayBuffer(data)], { type: asset.mediaType }),
-      asset.fileName
+      new Blob([toArrayBuffer(data)], { type: representation.mediaType }),
+      representation.fileName
     );
+  };
+
+  const replaceRepresentation = async (
+    asset: AssetData,
+    representationIndex: number,
+    file: File
+  ) => {
+    try {
+      const representations = assetRepresentations(asset);
+      const previous = representations[representationIndex];
+      if (!previous) throw new Error("Unknown representation.");
+      const mediaType = fileMediaType(file);
+      if (inferKind(mediaType, file.name) !== asset.kind) {
+        throw new Error("Replacement must keep the logical asset kind.");
+      }
+      const candidate: AssetRepresentationData = {
+        ...(previous.path ? { path: previous.path } : {}),
+        fileName: file.name,
+        mediaType,
+        fingerprint: `session-${++sessionAssetRevision}-${file.size}-${file.lastModified}`,
+        role: previous.role,
+        bytes: file.size
+      };
+      assertRepresentationLoadable(asset, candidate, "author");
+      const data = new Uint8Array(await file.arrayBuffer());
+      validateVisualFile(candidate, data);
+      representations[representationIndex] = { ...candidate, data };
+      onAssetsChange(
+        assets.map((item) =>
+          item.id === asset.id
+            ? rebuildAsset(item, representations)
+            : item
+        )
+      );
+      setLoadError(undefined);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const addRepresentation = async (asset: AssetData, file: File) => {
+    try {
+      const mediaType = fileMediaType(file);
+      if (inferKind(mediaType, file.name) !== asset.kind) {
+        throw new Error("Representation must match the logical asset kind.");
+      }
+      const representation: AssetRepresentationData = {
+        fileName: file.name,
+        mediaType,
+        fingerprint: `session-${++sessionAssetRevision}-${file.size}-${file.lastModified}`,
+        role: inferRole(asset.kind, mediaType),
+        bytes: file.size
+      };
+      assertRepresentationLoadable(asset, representation, "author");
+      const data = new Uint8Array(await file.arrayBuffer());
+      validateVisualFile(representation, data);
+      const representations = [...assetRepresentations(asset), { ...representation, data }];
+      onAssetsChange(
+        assets.map((item) =>
+          item.id === asset.id ? rebuildAsset(item, representations) : item
+        )
+      );
+      setLoadError(undefined);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : String(error));
+    }
   };
 
   const addFile = async (file: File) => {
     const id = assetId.trim();
     if (!/^[A-Za-z][A-Za-z0-9._-]*$/.test(id)) return;
     if (assets.some((asset) => asset.id === id)) return;
-    const mediaType = file.type || inferMediaType(file.name);
+    const mediaType = fileMediaType(file);
     const kind = inferKind(mediaType, file.name);
+    const draft: AssetRepresentationData = {
+      fileName: file.name,
+      mediaType,
+      fingerprint: `session-${++sessionAssetRevision}-${file.size}-${file.lastModified}`,
+      role: inferRole(kind, mediaType),
+      bytes: file.size
+    };
+    const draftAsset = { id, kind, ...draft } as AssetData;
+    assertRepresentationLoadable(draftAsset, draft, "author");
     const eager = kind === "diagram" ? new Uint8Array(await file.arrayBuffer()) : undefined;
-    if (mediaType === "application/vnd.jgraph.mxfile" && eager) validateDrawioXml(eager);
+    if (eager) validateVisualFile(draft, eager);
+    const representation: AssetRepresentationData = {
+      ...draft,
+      data: eager,
+      load: async () => eager ?? new Uint8Array(await file.arrayBuffer()),
+      openStream: () => file.stream()
+    };
     onAssetsChange([
       ...assets,
       {
         id,
-        fileName: file.name,
-        mediaType,
-        fingerprint: `session-${++sessionAssetRevision}-${file.size}-${file.lastModified}`,
         kind,
-        role: inferRole(kind, mediaType),
-        bytes: file.size,
-        data: eager,
-        load: async () => eager ?? new Uint8Array(await file.arrayBuffer()),
-        openStream: () => file.stream()
+        ...representation,
+        representations: [representation]
       }
     ]);
     setAssetId("");
@@ -209,26 +309,62 @@ export function PackageView({
                       {referenced.has(asset.id) ? "used" : "unused"}
                     </span>
                   </div>
-                  <span>{asset.fileName}</span>
                   <span>
-                    {asset.mediaType} · {formatBytes(asset.bytes)} ·{" "}
-                    {asset.data ? "loaded" : "deferred"}
+                    {assetRepresentations(asset).length} {assetRepresentations(asset).length === 1 ? "representation" : "representations"}
                   </span>
+                  <div className="representation-list">
+                    {assetRepresentations(asset).map((representation, index) => {
+                      const key = asset.id + ":" + index;
+                      return (
+                        <div className="representation-row" key={representation.path ?? `${representation.fileName}:${index}`}>
+                          <div>
+                            <strong>{representation.fileName}</strong>
+                            <span>{representation.role} · {representation.mediaType}</span>
+                            <span>{formatBytes(representation.bytes)} · {representation.data ? "loaded" : "deferred"}</span>
+                          </div>
+                          <div className="asset-actions">
+                            {!representation.data && (
+                              <button
+                                disabled={loadingId === key}
+                                onClick={() => void load(asset, index, "author")}
+                              >
+                                {loadingId === key ? "Loading…" : "Load"}
+                              </button>
+                            )}
+                            <button
+                              disabled={loadingId === key}
+                              onClick={() => void extract(asset, representation, index)}
+                            >
+                              Extract
+                            </button>
+                            <label className="compact-file-button">
+                              Replace
+                              <input
+                                type="file"
+                                onChange={(event) => {
+                                  const file = event.target.files?.[0];
+                                  if (file) void replaceRepresentation(asset, index, file);
+                                  event.target.value = "";
+                                }}
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                   <div className="asset-actions">
-                    {!asset.data && ["image", "audio", "video"].includes(asset.kind) && (
-                      <button
-                        disabled={loadingId === asset.id}
-                        onClick={() => void load(asset)}
-                      >
-                        {loadingId === asset.id ? "Loading…" : "Load preview"}
-                      </button>
-                    )}
-                    <button
-                      disabled={loadingId === asset.id}
-                      onClick={() => void extract(asset)}
-                    >
-                      Extract
-                    </button>
+                    <label className="compact-file-button">
+                      Add representation
+                      <input
+                        type="file"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          if (file) void addRepresentation(asset, file);
+                          event.target.value = "";
+                        }}
+                      />
+                    </label>
                     <button
                       disabled={referenced.has(asset.id)}
                       title={
@@ -278,10 +414,10 @@ export function PackageView({
                   <span>{asset.data ? `${asset.kind} preview` : "preview deferred"}</span>
                   {!asset.data && (
                     <button
-                      disabled={loadingId === asset.id}
+                      disabled={loadingId === asset.id + ":" + selectAssetRepresentationIndex(asset)}
                       onClick={() => void load(asset)}
                     >
-                      {loadingId === asset.id ? "Loading…" : "Load"}
+                      {loadingId === asset.id + ":" + selectAssetRepresentationIndex(asset) ? "Loading…" : "Load"}
                     </button>
                   )}
                 </div>
@@ -311,13 +447,31 @@ function AssetPreview({ asset, url }: { asset: AssetData; url?: string }) {
 }
 
 function SafeDiagramPreview({ bytes }: { bytes: Uint8Array }) {
-  const url = useMemo(() => {
-    const source = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    const sanitized = sanitizeSvg(source);
-    return URL.createObjectURL(new Blob([sanitized], { type: "image/svg+xml" }));
+  const result = useMemo(() => {
+    try {
+      if (bytes.byteLength > 4 * 1024 * 1024) {
+        throw new Error("draw.io SVG preview exceeds the 4 MiB preview limit.");
+      }
+      const source = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      validateDrawioSvg(source);
+      const sanitized = sanitizeSvg(source);
+      return {
+        url: URL.createObjectURL(new Blob([sanitized], { type: "image/svg+xml" }))
+      };
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : String(error) };
+    }
   }, [bytes]);
-  useEffect(() => () => URL.revokeObjectURL(url), [url]);
-  return <img className="asset-preview" src={url} alt="Sanitized draw.io SVG preview" />;
+  useEffect(
+    () => () => {
+      if (result.url) URL.revokeObjectURL(result.url);
+    },
+    [result]
+  );
+  if (!result.url) {
+    return <div className="asset-preview fallback">{result.error ?? "Invalid SVG preview"}</div>;
+  }
+  return <img className="asset-preview" src={result.url} alt="Sanitized draw.io SVG preview" />;
 }
 
 function validateDrawioXml(bytes: Uint8Array) {
@@ -328,6 +482,51 @@ function validateDrawioXml(bytes: Uint8Array) {
   if (parsed.querySelector("parsererror")) throw new Error("Invalid draw.io XML.");
   const root = parsed.documentElement.localName;
   if (root !== "mxfile" && root !== "mxGraphModel") throw new Error("Expected a draw.io mxfile or mxGraphModel root.");
+}
+
+function validateDrawioSvg(source: string) {
+  if (/<!DOCTYPE/i.test(source)) throw new Error("SVG DOCTYPE declarations are not allowed.");
+  const parsed = new DOMParser().parseFromString(source, "image/svg+xml");
+  if (parsed.querySelector("parsererror") || parsed.documentElement.localName !== "svg") {
+    throw new Error("Invalid draw.io SVG.");
+  }
+}
+
+function validateVisualFile(
+  representation: AssetRepresentationData,
+  bytes: Uint8Array
+) {
+  if (representation.mediaType === "application/vnd.jgraph.mxfile") {
+    validateDrawioXml(bytes);
+  } else if (
+    representation.mediaType === "image/svg+xml" &&
+    representation.fileName.toLowerCase().endsWith(".drawio.svg")
+  ) {
+    if (bytes.byteLength > 4 * 1024 * 1024) {
+      throw new Error("draw.io SVG exceeds the 4 MiB authoring limit.");
+    }
+    validateDrawioSvg(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  }
+}
+
+function rebuildAsset(
+  asset: AssetData,
+  representations: AssetRepresentationData[]
+): AssetData {
+  const provisional: AssetData = {
+    ...asset,
+    ...representations[0]!,
+    representations
+  };
+  const selected = representations[selectAssetRepresentationIndex(provisional)]!;
+  return { ...asset, ...selected, representations };
+}
+
+function fileMediaType(file: File): string {
+  const inferred = inferMediaType(file.name);
+  return inferred !== "application/octet-stream"
+    ? inferred
+    : file.type || inferred;
 }
 
 function iconFor(kind: AssetData["kind"]) {

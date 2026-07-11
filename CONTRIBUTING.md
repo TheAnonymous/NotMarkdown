@@ -33,7 +33,17 @@ The prepared CI definitions test the Rust workspace on Linux, macOS, and
 Windows and run the TypeScript reference-toolchain and Studio suites. Format
 changes must additionally extend `conformance/`.
 
-Licensing terms for the first public release will be recorded before the
-repository is published. Do not copy third-party fixtures without recording
-their source and compatible license.
+Implementation contributions are accepted under the repository's MIT license;
+specification, grammar, schema, conformance, documentation, and example
+contributions are dedicated under CC0-1.0 as described in
+`LICENSE-POLICY.md`. Do not copy third-party fixtures without recording their
+source and compatible license.
 
+Keep commits focused and add a `Signed-off-by` trailer (`git commit -s`) to
+confirm the Developer Certificate of Origin statement: you have the right to
+submit the contribution under the project's licenses. Pull requests should
+name exact verification commands and must not weaken the inert-document,
+offline-correctness, path-safety, or explicit-loss guarantees.
+
+Suspected vulnerabilities belong in GitHub's private vulnerability reporting
+form, not a public issue. See `SECURITY.md`.

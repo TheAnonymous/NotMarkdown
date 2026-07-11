@@ -379,10 +379,12 @@ pub fn preflight_static_visual(
     language: &str,
     source: &str,
 ) -> Result<RenderableNotation, StaticVisualError> {
-    let notation = renderable_notation(language).ok_or_else(|| visual_error(
-        StaticVisualErrorKind::UnsupportedNotation,
-        "Only exact mermaid, vega-lite, and vegalite fence tokens are renderable.",
-    ))?;
+    let notation = renderable_notation(language).ok_or_else(|| {
+        visual_error(
+            StaticVisualErrorKind::UnsupportedNotation,
+            "Only exact mermaid, vega-lite, and vegalite fence tokens are renderable.",
+        )
+    })?;
     match notation {
         RenderableNotation::Mermaid => preflight_mermaid(source)?,
         RenderableNotation::VegaLite => preflight_vega_lite(source, None)?,
@@ -547,7 +549,9 @@ pub fn preflight_vega_lite(
             "https://vega.github.io/schema/vega-lite/v5.json"
                 | "https://vega.github.io/schema/vega-lite/v6.json"
         ) {
-            return Err(invalid_vega("Only Vega-Lite v5 and v6 schema identifiers are accepted."));
+            return Err(invalid_vega(
+                "Only Vega-Lite v5 and v6 schema identifiers are accepted.",
+            ));
         }
     }
     for key in ["title", "description"] {
@@ -622,7 +626,9 @@ pub fn preflight_vega_lite(
         .and_then(Value::as_object)
         .ok_or_else(|| invalid_vega("encoding must be an object."))?;
     if encoding.is_empty() || encoding.len() > 24 {
-        return Err(invalid_vega("encoding must contain between 1 and 24 channels."));
+        return Err(invalid_vega(
+            "encoding must contain between 1 and 24 channels.",
+        ));
     }
     for (channel, definition) in encoding {
         if !matches!(
@@ -789,7 +795,9 @@ fn validate_field_definition(value: &Value) -> Result<(), StaticVisualError> {
         && !stack.is_null()
         && !matches!(stack.as_str(), Some("zero" | "normalize" | "center"))
     {
-        return Err(invalid_vega("stack must be zero, normalize, center, or null."));
+        return Err(invalid_vega(
+            "stack must be zero, normalize, center, or null.",
+        ));
     }
     if let Some(scale) = object.get("scale") {
         validate_scale(scale)?;
@@ -815,7 +823,11 @@ fn validate_scale(value: &Value) -> Result<(), StaticVisualError> {
     let object = value
         .as_object()
         .ok_or_else(|| invalid_vega("scale must be an object or null."))?;
-    reject_unknown_keys(object, &["type", "zero", "nice", "reverse"], "Vega-Lite scale")?;
+    reject_unknown_keys(
+        object,
+        &["type", "zero", "nice", "reverse"],
+        "Vega-Lite scale",
+    )?;
     if let Some(kind) = object.get("type") {
         let kind = kind
             .as_str()
@@ -897,7 +909,9 @@ fn bounded_string(value: &Value, name: &str, limit: usize) -> Result<(), StaticV
         return Err(invalid_vega(&format!("{name} must be a string.")));
     };
     if value.len() > limit || value.chars().any(char::is_control) {
-        return Err(invalid_vega(&format!("{name} is not a bounded plain string.")));
+        return Err(invalid_vega(&format!(
+            "{name} is not a bounded plain string."
+        )));
     }
     Ok(())
 }
@@ -3565,8 +3579,15 @@ mod tests {
         assert_eq!(renderable_notation("Mermaid"), None);
         assert_eq!(renderable_notation("VEGA-LITE"), None);
         assert_eq!(renderable_notation("vl"), None);
-        assert_eq!(search_document(&document, "flowchart", 1)[0].kind, "codeBlock");
-        assert!(render_terminal(&document).join("\n").contains("mermaid source"));
+        assert_eq!(
+            search_document(&document, "flowchart", 1)[0].kind,
+            "codeBlock"
+        );
+        assert!(
+            render_terminal(&document)
+                .join("\n")
+                .contains("mermaid source")
+        );
     }
 
     #[test]
@@ -3632,12 +3653,8 @@ mod tests {
     fn visual_asset_media_types_participate_in_disposable_search() {
         assert!(is_searchable_media_type("text/vnd.mermaid"));
         assert!(is_searchable_media_type("application/vnd.vegalite+json"));
-        assert!(is_searchable_media_type(
-            "application/vnd.vegalite.v5+json"
-        ));
-        assert!(is_searchable_media_type(
-            "application/vnd.vegalite.v6+json"
-        ));
+        assert!(is_searchable_media_type("application/vnd.vegalite.v5+json"));
+        assert!(is_searchable_media_type("application/vnd.vegalite.v6+json"));
     }
 
     #[test]

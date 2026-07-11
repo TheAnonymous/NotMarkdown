@@ -1,9 +1,16 @@
 # Local release handoff
 
-This directory prepares source artifacts before NotMarkdown has a GitHub home.
-Its packaging and verification commands are deliberately offline: they read the
-working tree, write a chosen local output directory, and do not invoke Git,
-GitHub, a package registry, or any network client.
+This directory contains the offline source packager and the public GitHub
+release-candidate handoff. The packaging and verification commands in
+`release/scripts/` remain deliberately offline: they read the working tree,
+write a chosen local output directory, and do not invoke Git, GitHub, a package
+registry, or any network client.
+
+The separate `.github/workflows/release.yml` is the online release path. It
+builds unsigned native tools for Linux, macOS, and Windows on x64 and arm64,
+packages and verifies the VS Code extension, merges the deterministic source
+archives, renders package-manager manifests from the final URLs and hashes,
+writes one final `SHA256SUMS`, and attests every asset.
 
 ## Build the source release
 
@@ -89,5 +96,30 @@ python3 -B -m unittest discover -s release/tests -v
 ```
 
 The separate [GitHub publication checklist](GITHUB-PUBLICATION-CHECKLIST.md)
-keeps today's offline preparation distinct from Sunday's deliberate online
-actions.
+keeps offline reproducibility checks distinct from credentialed online actions.
+
+## Automated release candidate
+
+A push to `main` runs the release workflow only when
+`release/release-trigger.json` changes. That committed file supplies the
+Compatibility Kit version and positive release-candidate number; the workflow
+derives `compatibility-kit-v<version>-rc.<number>` and rejects version drift.
+Tag pushes and manual dispatches remain supported validation paths.
+
+After all six native builds, source packaging, and VSIX verification succeed,
+the workflow creates a new public GitHub prerelease. It fails closed if either
+the derived tag or release already exists; any changed bytes require a higher
+committed release-candidate number. It does not publish to VS Code or
+JetBrains Marketplace, Homebrew Core, WinGet, Scoop, AUR, or an app store.
+
+Release assets are unsigned until platform signing identities exist. GitHub's
+keyless build-provenance attestation can be verified independently after
+download:
+
+```sh
+gh attestation verify <downloaded-asset> -R TheAnonymous/NotMarkdown
+sha256sum --check SHA256SUMS
+```
+
+The desktop wrapper under `integrations/desktop/` remains an unbundled scaffold
+and is deliberately absent from this release matrix.
