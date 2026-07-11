@@ -153,22 +153,43 @@ describe("visual rendering boundary", () => {
       measureText: (value: string) => ({ width: value.length * 6 })
     })) as unknown as typeof HTMLCanvasElement.prototype.getContext;
     try {
-      const svg = await renderVegaLiteSvg(JSON.stringify({
+      const chart = {
         data: { values: [{ label: "A", value: 1 }, { label: "B", value: 2 }] },
         mark: "bar",
         encoding: {
-          x: { field: "label", type: "nominal" },
+          x: { field: "label", type: "nominal", sort: null },
           y: { field: "value", type: "quantitative" }
         }
-      }));
+      };
+      const svg = await renderVegaLiteSvg(JSON.stringify(chart));
       expect(svg).toContain("<svg");
       expect(svg).toContain("aria-roledescription=\"bar\"");
+      const defaultSize = svgSize(svg);
+      expect(defaultSize.width).toBeGreaterThanOrEqual(500);
+      expect(defaultSize.width).toBeGreaterThan(defaultSize.height);
+
+      const explicitlySized = await renderVegaLiteSvg(JSON.stringify({
+        ...chart,
+        width: 240,
+        height: 160
+      }));
+      const explicitSize = svgSize(explicitlySized);
+      expect(explicitSize.width).toBeLessThan(defaultSize.width - 150);
+      expect(explicitSize.height).toBeLessThan(defaultSize.height - 50);
     } finally {
       globalThis.Function = NativeFunction;
       HTMLCanvasElement.prototype.getContext = nativeGetContext;
     }
   });
 });
+
+function svgSize(svg: string): { width: number; height: number } {
+  const root = new DOMParser().parseFromString(svg, "image/svg+xml").documentElement;
+  return {
+    width: Number(root.getAttribute("width")),
+    height: Number(root.getAttribute("height"))
+  };
+}
 
 function restoreProperty(
   target: object,

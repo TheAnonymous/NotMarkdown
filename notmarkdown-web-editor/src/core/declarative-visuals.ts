@@ -103,7 +103,7 @@ function preflightBounds(source: string): VisualPreflight {
 
 function validateEncoding(encoding: Record<string, unknown>): boolean {
   const channels = new Set(["x", "y", "color", "size", "shape", "theta", "radius", "detail", "order"]);
-  const keys = new Set(["field", "type", "title", "aggregate", "stack"]);
+  const keys = new Set(["field", "type", "title", "aggregate", "stack", "sort"]);
   const types = new Set(["quantitative", "temporal", "ordinal", "nominal"]);
   const aggregates = new Set(["count", "sum", "mean", "median", "min", "max"]);
   for (const [channel, definition] of Object.entries(encoding)) {
@@ -114,6 +114,7 @@ function validateEncoding(encoding: Record<string, unknown>): boolean {
     if (definition.title !== undefined && typeof definition.title !== "string") return false;
     if (definition.aggregate !== undefined && (typeof definition.aggregate !== "string" || !aggregates.has(definition.aggregate))) return false;
     if (definition.stack !== undefined && definition.stack !== "zero" && definition.stack !== "normalize" && definition.stack !== null) return false;
+    if (definition.sort !== undefined && definition.sort !== null) return false;
   }
   return Object.keys(encoding).length > 0;
 }

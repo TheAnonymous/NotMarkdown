@@ -26,7 +26,7 @@ describe("static declarative visuals", () => {
       data: { values: [{ label: "A", value: 1 }] },
       mark: "bar",
       encoding: {
-        x: { field: "label", type: "nominal" },
+        x: { field: "label", type: "nominal", sort: null },
         y: { field: "value", type: "quantitative" }
       }
     });
@@ -38,6 +38,7 @@ describe("static declarative visuals", () => {
     expect(preflightVegaLite(JSON.stringify({ ...base, data: { url: "https://example.com/data.json" } })).ok).toBe(false);
     expect(preflightVegaLite(JSON.stringify({ ...base, transform: [{ calculate: "1e9", as: "x" }] })).ok).toBe(false);
     expect(preflightVegaLite(JSON.stringify({ ...base, encoding: { x: { field: "x", type: "quantitative", axis: { labelExpr: "datum" } } } })).ok).toBe(false);
+    expect(preflightVegaLite(JSON.stringify({ ...base, encoding: { x: { field: "x", type: "quantitative", sort: "ascending" } } })).ok).toBe(false);
     expect(preflightVegaLite(JSON.stringify(base), "line").ok).toBe(false);
   });
 });

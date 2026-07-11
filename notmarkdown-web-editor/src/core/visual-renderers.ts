@@ -2,6 +2,8 @@ import DOMPurify from "dompurify";
 import { preflightMermaid, preflightVegaLite } from "./declarative-visuals";
 
 const RENDER_TIMEOUT_MS = 4_000;
+const DEFAULT_VEGA_LITE_WIDTH = 480;
+const DEFAULT_VEGA_LITE_HEIGHT = 260;
 let mermaidSequence = 0;
 
 class RenderQueue {
@@ -65,7 +67,17 @@ export async function renderVegaLiteSvg(source: string): Promise<string> {
       import("vega"),
       import("vega-interpreter")
     ]);
-    const compiled = compile(preflight.spec as never, { config: { background: "transparent" } });
+    const compiled = compile(preflight.spec as never, {
+      config: {
+        background: "transparent",
+        view: {
+          continuousWidth: DEFAULT_VEGA_LITE_WIDTH,
+          continuousHeight: DEFAULT_VEGA_LITE_HEIGHT,
+          discreteWidth: DEFAULT_VEGA_LITE_WIDTH,
+          discreteHeight: DEFAULT_VEGA_LITE_HEIGHT
+        }
+      }
+    });
     const runtime = vega.parse(compiled.spec, undefined, { ast: true });
     const view = new vega.View(runtime, {
       expr: expressionInterpreter,
