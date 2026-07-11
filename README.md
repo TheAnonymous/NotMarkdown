@@ -3,6 +3,7 @@
 [![Pages](https://github.com/TheAnonymous/NotMarkdown/actions/workflows/pages.yml/badge.svg)](https://github.com/TheAnonymous/NotMarkdown/actions/workflows/pages.yml)
 [![Node toolchain](https://github.com/TheAnonymous/NotMarkdown/actions/workflows/node.yml/badge.svg)](https://github.com/TheAnonymous/NotMarkdown/actions/workflows/node.yml)
 [![Rust workspace](https://github.com/TheAnonymous/NotMarkdown/actions/workflows/rust.yml/badge.svg)](https://github.com/TheAnonymous/NotMarkdown/actions/workflows/rust.yml)
+[![Compatibility Kit](https://img.shields.io/github/v/release/TheAnonymous/NotMarkdown?include_prereleases&label=compatibility%20kit)](https://github.com/TheAnonymous/NotMarkdown/releases/tag/compatibility-kit-v0.2.0-rc.1)
 [![License: MIT / CC0](https://img.shields.io/badge/license-MIT%20%2F%20CC0-5b4bc4)](LICENSE-POLICY.md)
 
 NotMarkdown is a static, deterministic, single-file document format for
@@ -86,6 +87,11 @@ cargo run --release -p notmarkdown-cli -- export README.nmdoc \
 Download the [single-file diagrams and charts
 showcase](https://theanonymous.github.io/NotMarkdown/downloads/NotMarkdown-visuals-0.1.nmdoc)
 to test Mermaid, Vega-Lite, and draw.io interoperability.
+
+Unsigned CLI/LSP/TUI archives for Linux, macOS, and Windows on x64 and arm64,
+the installable VS Code extension, checksums, and package-manager review files
+are available in the [Compatibility Kit 0.2.0-rc.1
+prerelease](https://github.com/TheAnonymous/NotMarkdown/releases/tag/compatibility-kit-v0.2.0-rc.1).
 
 ## Build and verify
 
