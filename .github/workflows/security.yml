@@ -39,7 +39,7 @@ jobs:
           - component: Desktop-scaffold
             directory: integrations/desktop
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: actions/setup-node@v6
@@ -57,7 +57,7 @@ jobs:
       checks: write
       issues: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: rustsec/audit-check@v2.0.0

@@ -32,7 +32,7 @@ jobs:
         working-directory: notmarkdown-rust
     steps:
       - name: Check out source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
