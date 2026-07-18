@@ -142,13 +142,13 @@
     "package": "vsce package --out notmarkdown-vscode-0.2.0.vsix"
   },
   "dependencies": {
-    "vscode-languageclient": "^9.0.1"
+    "vscode-languageclient": "^10.1.0"
   },
   "devDependencies": {
-    "@types/node": "^24.10.0",
+    "@types/node": "^26.1.1",
     "@types/vscode": "^1.107.0",
     "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.28.1",
-    "typescript": "^5.9.3"
+    "typescript": "^7.0.2"
   }
 }
